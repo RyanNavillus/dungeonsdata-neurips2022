@@ -7,13 +7,16 @@ This code will be tidied up and released as an easily reproduced baseline on NLE
 
 
 ```sh
-# Basic setup, ensure you already have Cuda 10.2+ and CUDNN installed.
-conda create -n nle python=3.9
+# Basic setup, ensure you already have Cuda 11.8+ and CUDNN installed.
+conda create -n nle python=3.8
 conda activate nle
 
 # Install PyTorch and cmake.
-conda install pytorch cudatoolkit=10.2 -c pytorch
+conda install pytorch cudatoolkit=11.8 -c pytorch
 conda install cmake
+
+# Potential troubleshooting
+# pip install gcc-9
 
 # Install moolib
 pip install git+ssh://git@github.com/facebookresearch/moolib
@@ -23,16 +26,20 @@ pip install git+https://github.com/facebookresearch/nle.git@main
 
 # Get this repo.
 git clone --recursive git+https://github.com/dungeonsdatasubmission/dungeonsdata-neurips2022.git 
-cd dungeonsdata-neurips2022/code
+cd dungeonsdata-neurips2022
 
-# install render_utils, hackrl 
+# Add missing third_party libraries to render_utils
+git submodule add -b stable ../../pybind/pybind11 experiment_code/render_utils/third_party/pybind11
+git submodule update --init
+
+# install render_utils, hackrl
+cd experiment_code 
 pip install -r requirements.txt
 cd render_utils && pip install -e . && cd ..
 pip install -e .
 
 # Test NLE.
 python -c 'import gym; import nle; env = gym.make("NetHackScore-v0"); env.reset(); env.render()'
-
 
 
 ```
@@ -46,6 +53,9 @@ First, start a moolib broker in a shell on your devfair:
 
 ```
 python -m moolib.broker
+
+# Troubleshooting
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/miniconda3/envs/nle/lib/
 ```
 
 It will output something like `Broker listening at 0.0.0.0:4431`.

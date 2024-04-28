@@ -36,6 +36,10 @@ from hackrl.core import vtrace
 TTYREC_HIDDEN_STATE = None
 TTYREC_ENVPOOL = None
 
+import syllabus
+from syllabus.core import MultiProcessingCurriculumWrapper, MultiProcessingCurriculumWrapper, make_multiprocessing_curriculum
+from syllabus.curricula import DomainRandomization
+
 
 class TtyrecEnvPool:
     def __init__(self, flags, **dataset_kwargs):
@@ -354,6 +358,7 @@ class LearnerState:
     last_checkpoint: float = 0
     last_checkpoint_history: float = 0
     global_stats: Optional[dict] = None
+    curriculum: syllabus.core.Curriculum = None
 
     def save(self):
         r = dataclasses.asdict(self)
@@ -429,7 +434,7 @@ class GlobalStatsAccumulator:
             self.queued_global_stats = None
             # Additional copy to deal with potential partial reductions.
             self.reduce_future = self.rpc_group.all_reduce(
-                "global stats", copy.deepcopy(self.sent_global_stats), self.add_stats
+                "global stats", copy.deepcopy(self.sent_global_stats), op=self.add_stats
             )
 
     def reset(self):
@@ -481,6 +486,7 @@ class EnvBatchState:
         stats["mean_square_discounted_running_reward"] += (
             self.discounted_running_reward**2
         )
+        # print(stats["mean_square_discounted_running_reward"])
         not_done = ~done
 
         self.discounted_running_reward *= not_done
@@ -680,6 +686,7 @@ def compute_gradients(data, learner_state, stats):
     rewards = env_outputs["reward"] * FLAGS.reward_scale
     if FLAGS.rms_reward_norm:
         reward_std = stats["mean_square_discounted_running_reward"].mean() ** 0.5
+        # print(reward_std)
         rewards /= max(0.01, reward_std)
         stats["reward_normalised"] += rewards.mean().item()
     if FLAGS.reward_clip:
@@ -824,6 +831,7 @@ def uid():
 
 omegaconf.OmegaConf.register_new_resolver("uid", uid, use_cache=True)
 
+
 # Override config_path via --config_path.
 @hydra.main(config_path=".", config_name="config")
 def main(cfg):
@@ -850,8 +858,38 @@ def main(cfg):
 
     logging.info("train_id: %s", train_id)
 
+    # Curriculum setup
+    task_queue = update_queue = None
+    # curriculum_method = "dr"
+    # if True:
+    #     sample_env = hackrl.environment.create_env(FLAGS, task_queue, update_queue)
+
+    #     # Intialize Curriculum Method
+    #     if curriculum_method == "plr":
+    #         print("Using prioritized level replay.")
+    #         # curriculum = PrioritizedLevelReplay(
+    #         #     sample_env.task_space,
+    #         #     num_steps=args.num_steps,
+    #         #     num_processes=args.num_envs,
+    #         #     gamma=args.gamma,
+    #         #     gae_lambda=args.gae_lambda,
+    #         #     task_sampler_kwargs_dict={"strategy": "value_l1"}
+    #         # )
+    #     elif curriculum_method == "dr":
+    #         print("Using domain randomization.")
+    #         curriculum = DomainRandomization(sample_env.task_space)
+    #     elif curriculum_method == "lp":
+    #         print("Using learning progress.")
+    #         # curriculum = LearningProgressCurriculum(sample_env.task_space)
+    #     else:
+    #         raise ValueError(f"Unknown curriculum method {curriculum_method}")
+    #     curriculum, task_queue, update_queue = make_multiprocessing_curriculum(curriculum)
+    #     del sample_env
+
+    # logging.info("curriculum: %s", curriculum_method)
+
     envs = moolib.EnvPool(
-        lambda: hackrl.environment.create_env(FLAGS),
+        lambda: hackrl.environment.create_env(FLAGS, task_queue, update_queue),
         num_processes=FLAGS.num_actor_cpus,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
@@ -1104,6 +1142,9 @@ def main(cfg):
 
         if accumulator.has_gradients():
             gradient_stats = accumulator.get_gradient_stats()
+            logging.info("batch_size: %s", gradient_stats["batch_size"])
+            logging.info("virtual_batch_size: %s", stats["virtual_batch_size"])
+            logging.info("num_gradients: %s", gradient_stats["num_gradients"])
             stats["virtual_batch_size"] += gradient_stats["batch_size"]
             stats["num_gradients"] += gradient_stats["num_gradients"]
             step_optimizer(learner_state, stats)
@@ -1123,6 +1164,7 @@ def main(cfg):
             if env_state.future is None:
                 env_state.future = envs.step(cur_index, env_state.prev_action)
             cpu_env_outputs = env_state.future.result()
+            # logging.info("generated data")
 
             env_outputs = nest.map(
                 lambda t: t.to(FLAGS.device, copy=True), cpu_env_outputs
@@ -1136,6 +1178,7 @@ def main(cfg):
                     nest.map(lambda t: t.unsqueeze(0), env_outputs),
                     env_state.core_state,
                 )
+            # logging.info("generated actions")
             actor_outputs = nest.map(lambda t: t.squeeze(0), actor_outputs)
             action = actor_outputs["action"]
             env_state.update(cpu_env_outputs, action, stats)

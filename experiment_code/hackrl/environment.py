@@ -13,9 +13,11 @@
 # limitations under the License.
 from . import tasks
 from . import wrappers
+from syllabus.core import MultiProcessingSyncWrapper
+from syllabus.examples.task_wrappers import NethackTaskWrapper
 
 
-def create_env(flags):
+def create_env(flags, task_queue, update_queue):
     env_class = tasks.ENVS[flags.env.name]
 
     observation_keys = (
@@ -58,5 +60,15 @@ def create_env(flags):
             crop_size=flags.crop_dim,
             rescale_font_size=(flags.pixel_size, flags.pixel_size),
         )
+
+    env = NethackTaskWrapper(env)
+    # if task_queue is not None and update_queue is not None:
+    #     env = MultiProcessingSyncWrapper(
+    #         env,
+    #         task_queue,
+    #         update_queue,
+    #         update_on_step=False,
+    #         task_space=env.task_space,
+    #     )
 
     return env

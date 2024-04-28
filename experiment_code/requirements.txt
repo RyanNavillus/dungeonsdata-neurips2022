@@ -1,14 +1,13 @@
 gym
-nle
 gitpython>=2.1  # For logging metadata.
 hydra-core>=1.0.1
 hydra-nevergrad-sweeper
 hydra_colorlog
 wandb
 torch
-numpy
 coolname
 opencv-python
+numpy
 numba
 pillow>=9.0.0
 # ttyrecs
