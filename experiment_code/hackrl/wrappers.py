@@ -105,7 +105,8 @@ def _initialize_char_array(font_size, rescale_font_size):
 
     Returns a np array of (num_chars, num_colors, char_height, char_width, 3)
     """
-    font = ImageFont.truetype(SMALL_FONT_PATH, font_size)
+    #ont = ImageFont.truetype(SMALL_FONT_PATH, font_size)
+    font = ImageFont.load_default()
     dummy_text = "".join(
         [(chr(i) if chr(i).isprintable() else " ") for i in range(256)]
     )

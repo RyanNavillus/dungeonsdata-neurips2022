@@ -38,8 +38,8 @@ TTYREC_ENVPOOL = None
 
 import syllabus
 from syllabus.core import MultiProcessingCurriculumWrapper, MultiProcessingCurriculumWrapper, make_multiprocessing_curriculum
-from syllabus.curricula import DomainRandomization
-
+from syllabus.curricula import SequentialCurriculum
+from nle.env.tasks import NetHackEat, NetHackScore
 
 class TtyrecEnvPool:
     def __init__(self, flags, **dataset_kwargs):
@@ -358,7 +358,7 @@ class LearnerState:
     last_checkpoint: float = 0
     last_checkpoint_history: float = 0
     global_stats: Optional[dict] = None
-    curriculum: syllabus.core.Curriculum = None
+    #curriculum: syllabus.core.Curriculum = None
 
     def save(self):
         r = dataclasses.asdict(self)
@@ -444,7 +444,7 @@ class GlobalStatsAccumulator:
 
 
 class EnvBatchState:
-    def __init__(self, flags, model):
+    def __init__(self, flags, model, curriculum):
         batch_size = flags.actor_batch_size
         device = flags.device
         self.batch_size = batch_size
@@ -460,6 +460,7 @@ class EnvBatchState:
         self.step_count = torch.zeros(batch_size)
 
         self.time_batcher = moolib.Batcher(flags.unroll_length + 1, flags.device)
+        self.curriculum = curriculum
 
     def update(self, env_outputs, action, stats):
         self.prev_action = action
@@ -473,6 +474,9 @@ class EnvBatchState:
         episode_return = self.running_reward * done
         episode_step = self.step_count * done
         episodes_done = done.sum().item()
+
+        if done[0] > 0:
+            self.curriculum.update_on_episode(self, episode_return, episode_step, 0)
 
         if episodes_done > 0:
             stats["mean_episode_return"] += episode_return.sum().item() / episodes_done
@@ -828,6 +832,17 @@ def calculate_sps(stats, delta, prev_steps):
 def uid():
     return "%s:%i:%s" % (socket.gethostname(), os.getpid(), coolname.generate_slug(2))
 
+def set_up_curriculum(FLAGS, curriculum_method='sq'):
+    sample_env = hackrl.environment.create_env(FLAGS)
+    if curriculum_method == "sq":
+        curriculum = SequentialCurriculum([NetHackScore, NetHackEat], ["episodes>=1"], sample_env.task_space)
+    else:
+        raise ValueError(f"Unknown curriculum method {curriculum_method}")
+    curriculum = make_multiprocessing_curriculum(curriculum)
+    del sample_env
+    logging.info("curriculum: %s", curriculum_method)
+    return curriculum
+
 
 omegaconf.OmegaConf.register_new_resolver("uid", uid, use_cache=True)
 
@@ -859,7 +874,7 @@ def main(cfg):
     logging.info("train_id: %s", train_id)
 
     # Curriculum setup
-    task_queue = update_queue = None
+    #task_queue = update_queue = None
     # curriculum_method = "dr"
     # if True:
     #     sample_env = hackrl.environment.create_env(FLAGS, task_queue, update_queue)
@@ -888,8 +903,10 @@ def main(cfg):
 
     # logging.info("curriculum: %s", curriculum_method)
 
+    curriculum = set_up_curriculum(FLAGS)
+
     envs = moolib.EnvPool(
-        lambda: hackrl.environment.create_env(FLAGS, task_queue, update_queue),
+        lambda: hackrl.environment.create_env(FLAGS, curriculum.get_components()),
         num_processes=FLAGS.num_actor_cpus,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
@@ -907,6 +924,7 @@ def main(cfg):
     else:
         model = hackrl.models.create_model(FLAGS, FLAGS.device)
     optimizer = create_optimizer(model)
+    #learner_state = LearnerState(model, optimizer, curriculum=curriculum)
     learner_state = LearnerState(model, optimizer)
 
     model_numel = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -927,7 +945,7 @@ def main(cfg):
             name=FLAGS.local_name,
         )
 
-    env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
+    env_states = [EnvBatchState(FLAGS, model, curriculum=curriculum) for _ in range(FLAGS.num_actor_batches)]
 
     rpc = moolib.Rpc()
     rpc.set_name(FLAGS.local_name)
@@ -1142,9 +1160,9 @@ def main(cfg):
 
         if accumulator.has_gradients():
             gradient_stats = accumulator.get_gradient_stats()
-            logging.info("batch_size: %s", gradient_stats["batch_size"])
-            logging.info("virtual_batch_size: %s", stats["virtual_batch_size"])
-            logging.info("num_gradients: %s", gradient_stats["num_gradients"])
+            #logging.info("batch_size: %s", gradient_stats["batch_size"])
+            #logging.info("virtual_batch_size: %s", stats["virtual_batch_size"])
+            #logging.info("num_gradients: %s", gradient_stats["num_gradients"])
             stats["virtual_batch_size"] += gradient_stats["batch_size"]
             stats["num_gradients"] += gradient_stats["num_gradients"]
             step_optimizer(learner_state, stats)
