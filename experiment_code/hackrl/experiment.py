@@ -36,10 +36,10 @@ from hackrl.core import vtrace
 TTYREC_HIDDEN_STATE = None
 TTYREC_ENVPOOL = None
 
-import syllabus
-from syllabus.core import MultiProcessingCurriculumWrapper, MultiProcessingCurriculumWrapper, make_multiprocessing_curriculum
+from syllabus.core import make_multiprocessing_curriculum
 from syllabus.curricula import SequentialCurriculum, DomainRandomization
 from nle.env.tasks import NetHackEat, NetHackScore
+
 
 class TtyrecEnvPool:
     def __init__(self, flags, **dataset_kwargs):
@@ -444,7 +444,7 @@ class GlobalStatsAccumulator:
 
 
 class EnvBatchState:
-    def __init__(self, flags, model, curriculum=None):
+    def __init__(self, flags, model):
         batch_size = flags.actor_batch_size
         device = flags.device
         self.batch_size = batch_size
@@ -460,7 +460,6 @@ class EnvBatchState:
         self.step_count = torch.zeros(batch_size)
 
         self.time_batcher = moolib.Batcher(flags.unroll_length + 1, flags.device)
-        self.curriculum = curriculum
 
     def update(self, env_outputs, action, stats):
         self.prev_action = action
@@ -475,11 +474,7 @@ class EnvBatchState:
         episode_step = self.step_count * done
         episodes_done = done.sum().item()
 
-        #if done[0] > 0:
-            #self.curriculum.update_on_episode(self, episode_return, episode_step, 0)
         if episodes_done > 0:
-            #if self.curriculum is not None:
-                #self.curriculum.update_on_episode(self, episode_return, episode_step, 0)
             stats["mean_episode_return"] += episode_return.sum().item() / episodes_done
             stats["mean_episode_step"] += episode_step.sum().item() / episodes_done
         stats["steps_done"] += done.numel()
@@ -833,6 +828,7 @@ def calculate_sps(stats, delta, prev_steps):
 def uid():
     return "%s:%i:%s" % (socket.gethostname(), os.getpid(), coolname.generate_slug(2))
 
+
 def set_up_curriculum(FLAGS, curriculum_method='dr'):
     sample_env = hackrl.environment.create_env(FLAGS)
     if curriculum_method == "sq":
@@ -876,42 +872,13 @@ def main(cfg):
 
     logging.info("train_id: %s", train_id)
 
-    # Curriculum setup
-    #task_queue = update_queue = None
-    # curriculum_method = "dr"
-    # if True:
-    #     sample_env = hackrl.environment.create_env(FLAGS, task_queue, update_queue)
-
-    #     # Intialize Curriculum Method
-    #     if curriculum_method == "plr":
-    #         print("Using prioritized level replay.")
-    #         # curriculum = PrioritizedLevelReplay(
-    #         #     sample_env.task_space,
-    #         #     num_steps=args.num_steps,
-    #         #     num_processes=args.num_envs,
-    #         #     gamma=args.gamma,
-    #         #     gae_lambda=args.gae_lambda,
-    #         #     task_sampler_kwargs_dict={"strategy": "value_l1"}
-    #         # )
-    #     elif curriculum_method == "dr":
-    #         print("Using domain randomization.")
-    #         curriculum = DomainRandomization(sample_env.task_space)
-    #     elif curriculum_method == "lp":
-    #         print("Using learning progress.")
-    #         # curriculum = LearningProgressCurriculum(sample_env.task_space)
-    #     else:
-    #         raise ValueError(f"Unknown curriculum method {curriculum_method}")
-    #     curriculum, task_queue, update_queue = make_multiprocessing_curriculum(curriculum)
-    #     del sample_env
-
-    # logging.info("curriculum: %s", curriculum_method)
-
-    curriculum = set_up_curriculum(FLAGS)
-    #curriculum = None
+    curriculum = None
+    if FLAGS.syllabus:
+        curriculum = set_up_curriculum(FLAGS)
+    print(curriculum)
 
     envs = moolib.EnvPool(
-        lambda: hackrl.environment.create_env(FLAGS, curriculum.get_components()),
-        #lambda: hackrl.environment.create_env(FLAGS),
+        lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
         num_processes=FLAGS.num_actor_cpus,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
@@ -929,7 +896,6 @@ def main(cfg):
     else:
         model = hackrl.models.create_model(FLAGS, FLAGS.device)
     optimizer = create_optimizer(model)
-    #learner_state = LearnerState(model, optimizer, curriculum=curriculum)
     learner_state = LearnerState(model, optimizer)
 
     model_numel = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -950,7 +916,7 @@ def main(cfg):
             name=FLAGS.local_name,
         )
 
-    env_states = [EnvBatchState(FLAGS, model, curriculum=curriculum) for _ in range(FLAGS.num_actor_batches)]
+    env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
 
     rpc = moolib.Rpc()
     rpc.set_name(FLAGS.local_name)

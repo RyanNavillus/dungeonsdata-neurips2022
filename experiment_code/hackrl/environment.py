@@ -15,9 +15,23 @@ from . import tasks
 from . import wrappers
 from syllabus.core import MultiProcessingSyncWrapper
 from syllabus.examples.task_wrappers import NethackTaskWrapper
+from nle import nethack
 
 
-def create_env(flags, curriculum_components=None, task_queue=None, update_queue=None):
+class GymConvWrapper():
+    def __init__(self, env):
+        self.env = env
+
+    def step(self, action):
+        obs, rew, term, trunc, info = self.env.step(action)
+        return obs, rew, term or trunc, info
+
+    def reset(self):
+        obs, info = self.env.reset()
+        return obs
+
+
+def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
     env_class = tasks.ENVS[flags.env.name]
 
     observation_keys = (
@@ -44,9 +58,13 @@ def create_env(flags, curriculum_components=None, task_queue=None, update_queue=
         penalty_step=flags.penalty_step,
         penalty_time=flags.penalty_time,
         penalty_mode=flags.fn_penalty_step,
-        no_progress_timeout=150,
     )
-    if flags.env in ("staircase", "pet", "oracle"):
+    if flags.env.name == "challenge":
+        kwargs.update(no_progress_timeout=150)
+    else:
+        kwargs.update(actions=nethack.ACTIONS)
+
+    if flags.env.name in ("staircase", "pet", "oracle"):
         kwargs.update(reward_win=flags.reward_win, reward_lose=flags.reward_lose)
     # else:  # print warning once
     # warnings.warn("Ignoring flags.reward_win and flags.reward_lose")
@@ -61,15 +79,18 @@ def create_env(flags, curriculum_components=None, task_queue=None, update_queue=
             rescale_font_size=(flags.pixel_size, flags.pixel_size),
         )
 
-    env = NethackTaskWrapper(env)
-    if curriculum_components is not None:
+    if flags.syllabus:
+        env = NethackTaskWrapper(env)
+
+    if curriculum is not None:
         env = MultiProcessingSyncWrapper(
             env,
-            curriculum_components,
+            curriculum.get_components(),
             update_on_step=False,
             task_space=env.task_space,
-            buffer_size=4,
+            buffer_size=1,
         )
+        env = GymConvWrapper(env)
     # if task_queue is not None and update_queue is not None:
     #     env = MultiProcessingSyncWrapper(
     #         env,
