@@ -58,6 +58,7 @@ def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
         penalty_step=flags.penalty_step,
         penalty_time=flags.penalty_time,
         penalty_mode=flags.fn_penalty_step,
+        options=nethack.NETHACKOPTIONS,
     )
     if flags.env.name == "challenge":
         kwargs.update(no_progress_timeout=150)

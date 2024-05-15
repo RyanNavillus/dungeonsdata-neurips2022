@@ -37,8 +37,9 @@ TTYREC_HIDDEN_STATE = None
 TTYREC_ENVPOOL = None
 
 from syllabus.core import make_multiprocessing_curriculum
+from syllabus.task_space import TaskSpace
 from syllabus.curricula import SequentialCurriculum, DomainRandomization
-from nle.env.tasks import NetHackEat, NetHackScore
+from nle.env.tasks import NetHackEat, NetHackScore, NetHackStaircase, NetHackOracle, NetHackStaircasePet, NetHackGold, NetHackScout
 
 
 class TtyrecEnvPool:
@@ -358,7 +359,6 @@ class LearnerState:
     last_checkpoint: float = 0
     last_checkpoint_history: float = 0
     global_stats: Optional[dict] = None
-    #curriculum: syllabus.core.Curriculum = None
 
     def save(self):
         r = dataclasses.asdict(self)
@@ -828,12 +828,13 @@ def uid():
     return "%s:%i:%s" % (socket.gethostname(), os.getpid(), coolname.generate_slug(2))
 
 
-def set_up_curriculum(FLAGS, curriculum_method='dr'):
+def setup_curriculum(FLAGS, curriculum_method='dr'):
     sample_env = hackrl.environment.create_env(FLAGS)
-    if curriculum_method == "sq":
-        curriculum = SequentialCurriculum([NetHackScore, NetHackEat], ["episodes>=1"], sample_env.task_space)
-    elif curriculum_method == "dr":
-        curriculum = DomainRandomization(sample_env.task_space)
+    task_names = lambda task, idx: task.__name__
+    if FLAGS.curriculum_method == "sq":
+        curriculum = SequentialCurriculum([[NetHackScout, NetHackStaircase], [NetHackGold, NetHackStaircasePet, NetHackEat], [NetHackScore, NetHackOracle]], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
+    elif FLAGS.curriculum_method == "dr":
+        curriculum = DomainRandomization(TaskSpace(6), record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
     curriculum = make_multiprocessing_curriculum(curriculum)
@@ -873,7 +874,7 @@ def main(cfg):
 
     curriculum = None
     if FLAGS.syllabus:
-        curriculum = set_up_curriculum(FLAGS)
+        curriculum = setup_curriculum(FLAGS)
 
     envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
@@ -1190,6 +1191,7 @@ def main(cfg):
                 # with the initial_core_state to match
                 env_state.initial_core_state = prev_core_state
                 env_state.time_batcher.stack(last_data)
+            curriculum.log_metrics(wandb, step=steps)
     if is_connected and is_leader:
         save_checkpoint(checkpoint_path, learner_state)
     tp.shutdown()

@@ -129,3 +129,4 @@ ttyrec_envpool_size: 4
 ttyrec_cpus: 10 
 
 syllabus: True
+curriculum_method: sq
