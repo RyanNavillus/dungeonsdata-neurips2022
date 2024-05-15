@@ -486,7 +486,6 @@ class EnvBatchState:
         stats["mean_square_discounted_running_reward"] += (
             self.discounted_running_reward**2
         )
-        # print(stats["mean_square_discounted_running_reward"])
         not_done = ~done
 
         self.discounted_running_reward *= not_done
@@ -875,7 +874,6 @@ def main(cfg):
     curriculum = None
     if FLAGS.syllabus:
         curriculum = set_up_curriculum(FLAGS)
-    print(curriculum)
 
     envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
