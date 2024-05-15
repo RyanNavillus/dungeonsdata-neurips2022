@@ -44,7 +44,7 @@ def create_env(flags, curriculum_components=None, task_queue=None, update_queue=
         penalty_step=flags.penalty_step,
         penalty_time=flags.penalty_time,
         penalty_mode=flags.fn_penalty_step,
-        #no_progress_timeout=150,
+        no_progress_timeout=150,
     )
     if flags.env in ("staircase", "pet", "oracle"):
         kwargs.update(reward_win=flags.reward_win, reward_lose=flags.reward_lose)
@@ -68,7 +68,7 @@ def create_env(flags, curriculum_components=None, task_queue=None, update_queue=
             curriculum_components,
             update_on_step=False,
             task_space=env.task_space,
-            buffer_size=4,
+            buffer_size=1,
         )
     # if task_queue is not None and update_queue is not None:
     #     env = MultiProcessingSyncWrapper(

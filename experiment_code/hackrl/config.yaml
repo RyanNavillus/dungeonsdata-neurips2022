@@ -41,7 +41,7 @@ discounting: 0.999
 entity: null
 entropy_cost: 0.001
 env:
-  name: score  # One of challenge, staircase, pet, eat, gold, score, scout, oracle.
+  name: challenge  # One of challenge, staircase, pet, eat, gold, score, scout, oracle.
   max_episode_steps: 100000
 exp_point: point-A       # spare parameter, useful for wandb grouping
 exp_set: experiment-set  # spare parameter, useful for wandb grouping
