@@ -17,7 +17,7 @@ from syllabus.core import MultiProcessingSyncWrapper
 from syllabus.examples.task_wrappers import NethackTaskWrapper
 
 
-def create_env(flags, task_queue, update_queue):
+def create_env(flags, curriculum_components=None, task_queue=None, update_queue=None):
     env_class = tasks.ENVS[flags.env.name]
 
     observation_keys = (
@@ -62,6 +62,14 @@ def create_env(flags, task_queue, update_queue):
         )
 
     env = NethackTaskWrapper(env)
+    if curriculum_components is not None:
+        env = MultiProcessingSyncWrapper(
+            env,
+            curriculum_components,
+            update_on_step=False,
+            task_space=env.task_space,
+            buffer_size=1,
+        )
     # if task_queue is not None and update_queue is not None:
     #     env = MultiProcessingSyncWrapper(
     #         env,

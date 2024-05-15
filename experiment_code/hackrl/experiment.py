@@ -38,7 +38,7 @@ TTYREC_ENVPOOL = None
 
 import syllabus
 from syllabus.core import MultiProcessingCurriculumWrapper, MultiProcessingCurriculumWrapper, make_multiprocessing_curriculum
-from syllabus.curricula import SequentialCurriculum
+from syllabus.curricula import SequentialCurriculum, DomainRandomization
 from nle.env.tasks import NetHackEat, NetHackScore
 
 class TtyrecEnvPool:
@@ -444,7 +444,7 @@ class GlobalStatsAccumulator:
 
 
 class EnvBatchState:
-    def __init__(self, flags, model, curriculum):
+    def __init__(self, flags, model, curriculum=None):
         batch_size = flags.actor_batch_size
         device = flags.device
         self.batch_size = batch_size
@@ -475,10 +475,11 @@ class EnvBatchState:
         episode_step = self.step_count * done
         episodes_done = done.sum().item()
 
-        if done[0] > 0:
-            self.curriculum.update_on_episode(self, episode_return, episode_step, 0)
-
+        #if done[0] > 0:
+            #self.curriculum.update_on_episode(self, episode_return, episode_step, 0)
         if episodes_done > 0:
+            #if self.curriculum is not None:
+                #self.curriculum.update_on_episode(self, episode_return, episode_step, 0)
             stats["mean_episode_return"] += episode_return.sum().item() / episodes_done
             stats["mean_episode_step"] += episode_step.sum().item() / episodes_done
         stats["steps_done"] += done.numel()
@@ -832,10 +833,12 @@ def calculate_sps(stats, delta, prev_steps):
 def uid():
     return "%s:%i:%s" % (socket.gethostname(), os.getpid(), coolname.generate_slug(2))
 
-def set_up_curriculum(FLAGS, curriculum_method='sq'):
+def set_up_curriculum(FLAGS, curriculum_method='dr'):
     sample_env = hackrl.environment.create_env(FLAGS)
     if curriculum_method == "sq":
         curriculum = SequentialCurriculum([NetHackScore, NetHackEat], ["episodes>=1"], sample_env.task_space)
+    elif curriculum_method == "dr":
+        curriculum = DomainRandomization(sample_env.task_space)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
     curriculum = make_multiprocessing_curriculum(curriculum)
@@ -904,9 +907,11 @@ def main(cfg):
     # logging.info("curriculum: %s", curriculum_method)
 
     curriculum = set_up_curriculum(FLAGS)
+    #curriculum = None
 
     envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS, curriculum.get_components()),
+        #lambda: hackrl.environment.create_env(FLAGS),
         num_processes=FLAGS.num_actor_cpus,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
