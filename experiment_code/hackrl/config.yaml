@@ -21,7 +21,7 @@ hydra:
     dir: "${localdir}"
 
 activation_function: relu
-actor_batch_size: 512
+actor_batch_size: 256 # may try: 1, 8, 32; original: 512
 add_image_observation: True
 adam_beta1: 0.9
 adam_beta2: 0.999
@@ -30,7 +30,7 @@ adam_learning_rate: 0.0001
 appo_clip_policy: 0.1  # 'null' to disable clipping
 appo_clip_baseline: 1.0  # 'null' to disable clipping
 baseline_cost: 1
-batch_size: 256
+batch_size: 256 # may try: 16; original: 256
 character: "@"
 checkpoint_interval: 600
 checkpoint_history_interval: 3600
@@ -61,7 +61,7 @@ log_interval: 20
 model: ChaoticDwarvenGPT5
 normalize_advantages: True
 normalize_reward: False
-num_actor_batches: 2
+num_actor_batches: 1 # may try: 1; original: 2
 num_actor_cpus: 10
 pixel_size: 6
 penalty_step: 0.0
@@ -78,7 +78,7 @@ total_steps: 10_000_000_000
 unroll_length: 32
 use_bn: false
 use_lstm: true
-virtual_batch_size: 128
+virtual_batch_size: 128 # may try: 8, 32; original: 128
 wandb: true
 
 rms_reward_norm: true
