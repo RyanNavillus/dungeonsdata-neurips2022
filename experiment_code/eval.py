@@ -21,7 +21,7 @@ def load_model_and_flags(path, device, character):
     flags = omegaconf.OmegaConf.create(load_data["flags"])
     flags.device = device
     flags.character = character
-    #flags.env = {'name': 'score', 'max_episode_steps': 100000}
+    flags.syllabus = True
     model = hackrl.models.create_model(flags, device)
     if flags.use_kickstarting:
         print("Kickstarting")
@@ -36,7 +36,7 @@ def load_model_and_flags(path, device, character):
     return model, flags
 
 
-def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0):
+def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0, SCORE=False):
     global ENVS
     # NB: We do NOT want to generate the first N rollouts from B batch
     # of envs since this will bias short episodes.
@@ -45,7 +45,8 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0):
     split = 4
     rollouts = rollouts // (num_batches * split)
     flags.batch_size = rollouts
-    flags.env = {'name': 'score', 'max_episode_steps': 100000}
+    if SCORE:
+        flags.env = {'name': 'score', 'max_episode_steps': 100000}
     device = flags.device
 
     ENVS = moolib.EnvPool(
@@ -107,7 +108,7 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0):
             for j in np.argwhere(done_and_valid.cpu().numpy()):
                 reward = current_reward[i][j[0]].item()
                 returns.append(reward)
-                wandb.log({"episode_return": reward})
+                #wandb.log({"episode_return": reward})
 
             current_reward[i] *= 1 - env_outputs["done"].int()
             rollouts_left[i] -= done_and_valid
@@ -156,7 +157,7 @@ def find_checkpoint(path, min_steps, device):
     return f"{path}/checkpoint.tar"
 
 
-def evaluate_folder(name, path, min_steps, device, rollouts, character, pbar_idx):
+def evaluate_folder(name, path, min_steps, device, rollouts, character, pbar_idx, SCORE):
     p_ckpt = find_checkpoint(path, min_steps, device)
     if not p_ckpt:
         print(f"Not yet: {name} - {path}")
@@ -171,7 +172,7 @@ def evaluate_folder(name, path, min_steps, device, rollouts, character, pbar_idx
     print(f"{pbar_idx} {name} Using: {p_ckpt}")
     os.makedirs(f"{DIR}/{NAME}/", exist_ok=True)
     model, flags = load_model_and_flags(p_ckpt, device, character)
-    returns = generate_envpool_rollouts(model, rollouts, flags, pbar_idx)
+    returns = generate_envpool_rollouts(model, rollouts, flags, pbar_idx, SCORE)
     return (name, p_ckpt) + returns
 
 
@@ -180,28 +181,35 @@ if __name__ == "__main__":
     #DIR = "eval_results/mon-hum-neu-mal_txt"
     #DIR = "eval_results/tou-hum-neu-fem_txt"
     #DIR = "eval_results/val-dwa-law-fem_txt"
-    DIR = "eval_results/wiz-elf-cha-mal_txt"
+    #DIR = "eval_results/wiz-elf-cha-mal_txt"
+    
+    #DIR = "eval_results/SQ/SQ_1/mon-hum-neu-mal_txt"
     
     NAME, PATH = sys.argv[1], sys.argv[2]
-    DEVICE = sys.argv[3] if len(sys.argv) == 4 else "cuda:0"
+    SCORE = False if (len(sys.argv) == 3 or sys.argv[3] != 'score') else True
+    #DEVICE = sys.argv[3] if len(sys.argv) == 4 else "cuda:0"
+    DEVICE = sys.argv[4] if len(sys.argv) == 5 else "cuda:0"
     print(f"Running {NAME} - {PATH} on {DEVICE}")
     MIN_STEPS = 1_000_000_000
     ROLLOUTS = 1000 # Original: 1024
+
+    DIR = f"eval_results/{PATH.split('/')[-1].split('_')[0]}/{PATH.split('/')[-1]}"
 
     #character = "@"
     #character = "mon-hum-neu-mal"
     #character = "tou-hum-neu-fem"
     #character = "val-dwa-law-fem"
-    character = "wiz-elf-cha-mal"
+    #character = "wiz-elf-cha-mal"
+    character = NAME
 
-    wandb.init(
-        project='nethack',
-        group='group2',
-        entity=None,
-    )
+    # wandb.init(
+    #     project='nethack',
+    #     group='group2',
+    #     entity=None,
+    # )
 
     results = (NAME, PATH, -1, -1, -1)
-    results = evaluate_folder(NAME, PATH, MIN_STEPS, DEVICE, ROLLOUTS, character, 0)
+    results = evaluate_folder(NAME, PATH, MIN_STEPS, DEVICE, ROLLOUTS, character, 0, SCORE)
     print(
         f"{results[0]} Done {results[1]}  Mean {results[3]} ± {results[4]}  | Median {results[5]}"
     )
@@ -211,6 +219,10 @@ if __name__ == "__main__":
             ROLLOUTS,
         ) + results
         os.makedirs(f"{DIR}/{NAME}/", exist_ok=True)
-        with open(f"{DIR}/{NAME}/{PATH.split('/')[-1]}.txt", "w") as f:
+        if not SCORE:
+            file_name = f"{PATH.split('/')[-1]}_NetHackChallenge.txt"
+        else:
+            file_name = f"{PATH.split('/')[-1]}_NetHackScore.txt"
+        with open(f"{DIR}/{NAME}/{file_name}", "w") as f:
             f.write(",".join(str(d) for d in data) + "\n")
     print("done")
