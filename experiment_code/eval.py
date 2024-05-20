@@ -12,6 +12,7 @@ import hackrl.core
 import hackrl.environment
 import hackrl.models
 from hackrl.core import nest
+from copy import deepcopy
 
 ENVS = None
 
@@ -74,7 +75,14 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0, SCORE=False):
         )
     ).to(device)
 
-    returns = []
+    current_step = torch.zeros(
+        (
+            num_batches, rollouts
+        )
+    ).long().to(device)
+
+    #returns = []
+    episode_infos = []
     results = [None, None]
     grand_pbar = tqdm.tqdm(position=0, leave=True)
     pbar = tqdm.tqdm(
@@ -82,6 +90,7 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0, SCORE=False):
     )
 
     action = torch.zeros((num_batches, rollouts)).long().to(device)
+    
     hs = [model.initial_state(rollouts) for _ in range(num_batches)]
     hs = nest.map(lambda x: x.to(device), hs)
 
@@ -94,6 +103,7 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0, SCORE=False):
                 continue
             if results[i] is None:
                 results[i] = ENVS.step(i, action[i])
+                current_step += 1
             outputs = results[i].result()
 
             env_outputs = nest.map(lambda t: t.to(flags.device, copy=True), outputs)
@@ -107,7 +117,14 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0, SCORE=False):
 
             for j in np.argwhere(done_and_valid.cpu().numpy()):
                 reward = current_reward[i][j[0]].item()
-                returns.append(reward)
+                length = current_step[i][j[0]].item()
+                dungeon_level = env_outputs["blstats"][j[0]][24].item()
+                experience_level = env_outputs["blstats"][j[0]][18].item()
+                # print("12: ", env_outputs["blstats"][:,12])
+                # print("24: ", env_outputs["blstats"][:, 24])
+                # print("Experience level: ", env_outputs["blstats"][:, 18])
+                current_step[i][j[0]] = 0
+                episode_infos.append((reward, length, dungeon_level, experience_level))
                 #wandb.log({"episode_return": reward})
 
             current_reward[i] *= 1 - env_outputs["done"].int()
@@ -118,14 +135,21 @@ def generate_envpool_rollouts(model, rollouts, flags, pbar_idx=0, SCORE=False):
             env_outputs = nest.map(lambda x: x.unsqueeze(0), env_outputs)
             with torch.no_grad():
                 outputs, hs[i] = model(env_outputs, hs[i])
-                
+
             action[i] = outputs["action"].reshape(-1)
             results[i] = ENVS.step(i, action[i])
+            current_step += 1
     print("Character:", flags.character)
-    returns.sort(reverse=True)
-    print("Top 5:", returns[:5])
-    print(np.mean(returns[:5]))
-    return len(returns), np.mean(returns), np.std(returns), np.median(returns), (returns, returns[:5], np.mean(returns[:5]), flags.character)
+    episode_infos_copy = deepcopy(episode_infos)
+    episode_infos.sort(reverse=True)
+    print("Top 5:", episode_infos[:5])
+    print(np.mean(episode_infos[:5]))
+    return len(episode_infos), np.mean([i[0] for i in episode_infos]), np.std([i[0] for i in episode_infos]), np.median([i[0] for i in episode_infos]), (episode_infos_copy, episode_infos[:5], np.mean([i[0] for i in episode_infos][:5]), flags.character)
+    
+    # returns.sort(reverse=True)
+    # print("Top 5:", returns[:5])
+    # print(np.mean(returns[:5]))
+    # return len(returns), np.mean(returns), np.std(returns), np.median(returns), (returns, returns[:5], np.mean(returns[:5]), flags.character)
 
 
 def find_checkpoint(path, min_steps, device):
@@ -191,7 +215,7 @@ if __name__ == "__main__":
     DEVICE = sys.argv[4] if len(sys.argv) == 5 else "cuda:0"
     print(f"Running {NAME} - {PATH} on {DEVICE}")
     MIN_STEPS = 1_000_000_000
-    ROLLOUTS = 1000 # Original: 1024
+    ROLLOUTS = 2048 # Original: 1024
 
     DIR = f"eval_results/{PATH.split('/')[-1].split('_')[0]}/{PATH.split('/')[-1]}"
 
