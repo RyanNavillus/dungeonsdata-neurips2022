@@ -172,7 +172,9 @@ def main():
     address = get_address(FLAGS.broker)
     check(address)
 
-    savedir = os.path.join("/checkpoint", getpass.getuser(), FLAGS.project, FLAGS.group)
+    arg_dict = {a.split("=")[0]:a.split("=")[1] for a in FLAGS.args}
+    print(arg_dict)
+    savedir = os.path.join("/fs/nexus-scratch/rsulli/nethack/", arg_dict["exp_name"], arg_dict["run_id"])
 
     try:
         os.makedirs(savedir)
@@ -190,16 +192,18 @@ def main():
         "group": FLAGS.group,
     }
 
-    slurm_output = os.path.join(savedir, "slurm-%A_%a.out")
+    slurm_output = os.path.join("./slurm/logs/slurm-%A_%a.out")
 
     args = {
         "--constraint": FLAGS.constraint,
         "--job-name": "%s/%s" % (FLAGS.project, FLAGS.group),
         "--array": "0-%i" % (FLAGS.num_peers - 1),
-        "--partition": FLAGS.partition,
+        "--partition": "scavenger",
+        "--account": "scavenger",
+        "--qos": "scavenger",
         "--cpus-per-task": FLAGS.cpus,
         "--gpus-per-task": 1,
-        "--mem-per-cpu": "8G",
+        "--mem": "16G",
         "--time": FLAGS.time,
         "--ntasks": 1,
         "--output": slurm_output,

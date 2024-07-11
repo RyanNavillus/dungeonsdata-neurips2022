@@ -781,19 +781,24 @@ def step_optimizer(learner_state, stats):
     stats["optimizer_steps"] += 1
 
 
-def log(stats, step, is_global=False):
+def log(stats, step, is_global=False, curriculum=None):
     stats_values = {}
     prefix = "global/" if is_global else "local/"
     for k, v in stats.items():
-        stats_values[prefix + k] = v.result()
+        if is_global and "min" not in k and "max" not in k:     # Reduce logging file size
+            stats_values[prefix + k] = v.result()
         v.reset()
 
-    logging.info(stats_values)
-    if not is_global:
-        record.log_to_file(**stats_values)
+    if is_global:
+        logging.info(stats_values["global/mean_episode_return"])
+    # logging.info(stats_values)
+    # if not is_global:
+    #     record.log_to_file(**stats_values)
 
     if FLAGS.wandb:
         wandb.log(stats_values, step=step)
+        if curriculum is not None:
+            curriculum.log_metrics(wandb, step=step)
 
 
 def save_checkpoint(checkpoint_path, learner_state):
@@ -832,9 +837,9 @@ def setup_curriculum(FLAGS, curriculum_method='dr'):
     sample_env = hackrl.environment.create_env(FLAGS)
     task_names = lambda task, idx: task.__name__
     if FLAGS.curriculum_method == "sq":
-        curriculum = SequentialCurriculum([[NetHackScout, NetHackStaircase], [NetHackGold, NetHackStaircasePet, NetHackEat], [NetHackScore, NetHackOracle]], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
+        curriculum = SequentialCurriculum([[NetHackScout, NetHackStaircase, NetHackScore], [NetHackGold, NetHackStaircasePet, NetHackEat, NetHackScore], NetHackScore], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
     elif FLAGS.curriculum_method == "dr":
-        curriculum = DomainRandomization(TaskSpace(6), record_stats=True, task_names=task_names)
+        curriculum = DomainRandomization(TaskSpace(6, [NetHackScore, NetHackStaircase, NetHackStaircasePet, NetHackGold, NetHackEat, NetHackScout]), record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
     curriculum = make_multiprocessing_curriculum(curriculum)
@@ -908,11 +913,11 @@ def main(cfg):
 
     if FLAGS.wandb:
         wandb.init(
-            project=str(FLAGS.project),
+            project="syllabus",
             config=omegaconf.OmegaConf.to_container(FLAGS),
             group=FLAGS.group,
             entity=FLAGS.entity,
-            name=FLAGS.local_name,
+            name=FLAGS.exp_name,
         )
 
     env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
@@ -1095,7 +1100,7 @@ def main(cfg):
             steps = learner_state.global_stats["env_train_steps"].result()
 
             log(stats, step=steps, is_global=False)
-            log(learner_state.global_stats, step=steps, is_global=True)
+            log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum)
 
         if is_leader:
             if not was_leader:
@@ -1191,7 +1196,6 @@ def main(cfg):
                 # with the initial_core_state to match
                 env_state.initial_core_state = prev_core_state
                 env_state.time_batcher.stack(last_data)
-            curriculum.log_metrics(wandb, step=steps)
     if is_connected and is_leader:
         save_checkpoint(checkpoint_path, learner_state)
     tp.shutdown()
