@@ -15,7 +15,7 @@
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=5 syllabus=False
 
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=6 syllabus=False
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=7 syllabus=False
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=7 syllabus=False
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=8 syllabus=False
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=9 syllabus=False
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Challenge" run_id=10 syllabus=False
@@ -38,6 +38,12 @@ python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Sequential" curriculum_method="sq" run_id=8
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Sequential" curriculum_method="sq" run_id=9
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Sequential" curriculum_method="sq" run_id=10:
+
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=11
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=12
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=13
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=14
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=15:
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --constraint=volta32gb --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=monk-APPO  total_steps=2_000_000_000 character='mon-hum-neu-mal'
 
 # Behavioural Cloning Experiments
