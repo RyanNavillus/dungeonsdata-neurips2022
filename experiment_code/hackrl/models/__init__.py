@@ -19,7 +19,7 @@ from omegaconf import OmegaConf
 from ..tasks import ENVS
 from .baseline import BaselineNet
 from .chaotic_dwarf import ChaoticDwarvenGPT5
-from .offline_chaotic_dwarf import DQNChaoticDwarvenGPT5, IQLChaoticDwarvenGPT5 
+from .offline_chaotic_dwarf import DQNChaoticDwarvenGPT5, IQLChaoticDwarvenGPT5
 from .inverse_model import BigInverseOnlyModel
 from .kickstarter import KickStarter
 from .dqn import DQN
@@ -30,12 +30,12 @@ MODELS = [
     BaselineNet,
     ChaoticDwarvenGPT5,
     KickStarter,
-    BigInverseOnlyModel,    
-    DQNChaoticDwarvenGPT5, 
-    IQLChaoticDwarvenGPT5, 
-    DQN, 
-    CQL, 
-    IQL    
+    BigInverseOnlyModel,
+    DQNChaoticDwarvenGPT5,
+    IQLChaoticDwarvenGPT5,
+    DQN,
+    CQL,
+    IQL
 ]
 MODELS_LOOKUP = {c.__name__: c for c in MODELS}
 
@@ -81,5 +81,5 @@ def load_model(load_dir, device):
     flags.checkpoint = load_dir + "/checkpoint.tar"
     model = create_model(flags, device)
     checkpoint_states = torch.load(flags.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint_states["model_state_dict"])
+    model.load_state_dict(checkpoint_states["learner_state"]["model"])
     return model

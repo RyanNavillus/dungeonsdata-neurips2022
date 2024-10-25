@@ -316,7 +316,7 @@ class ChaoticDwarvenGPT5(nn.Module):
         if self.use_prev_action:
             st.append(
                 torch.nn.functional.one_hot(
-                    inputs["prev_action"], self.num_actions
+                    inputs["prev_action"].long(), self.num_actions
                 ).view(T * B, -1)
             )
 

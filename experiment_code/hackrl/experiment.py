@@ -9,37 +9,34 @@ import pprint
 import signal
 import socket
 import time
+from collections import defaultdict
 from typing import Optional
 
 import coolname
+import hackrl.environment
+import hackrl.models
 import hydra
-import moolib
 import numpy as np
 import omegaconf
+import render_utils
+import syllabus
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
-from nle.dataset import dataset
-from nle.dataset import db
-from nle.dataset import populate_db
-
-import hackrl.environment
-import hackrl.models
-import render_utils
-from hackrl.core import nest
-from hackrl.core import record
-from hackrl.core import vtrace
+from hackrl.core import nest, record, vtrace
+from nle.dataset import dataset, db, populate_db
+from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout, NetHackStaircase, NetHackStaircasePet
+from syllabus.core import make_multiprocessing_curriculum
+from syllabus.curricula import (CentralizedPrioritizedLevelReplay,
+                                DomainRandomization, NoopCurriculum,
+                                PrioritizedLevelReplay, SequentialCurriculum)
+import moolib
 
 # TTYREC_ASYNC_ITERATOR = None
 # TTYREC_DATA = None
 TTYREC_HIDDEN_STATE = None
 TTYREC_ENVPOOL = None
-
-from syllabus.core import make_multiprocessing_curriculum
-from syllabus.task_space import TaskSpace
-from syllabus.curricula import SequentialCurriculum, DomainRandomization
-from nle.env.tasks import NetHackEat, NetHackScore, NetHackStaircase, NetHackOracle, NetHackStaircasePet, NetHackGold, NetHackScout
 
 
 class TtyrecEnvPool:
@@ -119,7 +116,8 @@ class TtyrecEnvPool:
                         continue
 
                     cursor_uint8 = mb["tty_cursor"].astype(np.uint8)
-                    convert = lambda i: render_utils.render_crop(
+
+                    def convert(i): return render_utils.render_crop(
                         mb["tty_chars"][i],
                         mb["tty_colors"][i],
                         cursor_uint8[i],
@@ -350,6 +348,34 @@ class StatSum:
 
 
 @dataclasses.dataclass
+class StatMax:
+    value: float = 0
+
+    def result(self):
+        return self.value
+
+    def __sub__(self, other):
+        assert isinstance(other, StatMax)
+        return StatMax(self.value - other.value)
+
+    def __iadd__(self, other):
+        if isinstance(other, StatMax):
+            self.value = max(self.value, other.value)
+        else:
+            self.value = max(self.value, other)
+        return self
+
+    def reset(self):
+        pass
+
+    def decay_cumulative(self):
+        pass
+
+    def __repr__(self):
+        return repr(self.result())
+
+
+@dataclasses.dataclass
 class LearnerState:
     model: torch.nn.Module
     optimizer: torch.optim.Optimizer
@@ -481,11 +507,10 @@ class EnvBatchState:
         stats["episodes_done"] += episodes_done
 
         stats["running_reward"] += self.running_reward.mean().item()
+        stats["discounted_running_reward"] += self.discounted_running_reward.mean().item()
         stats["running_step"] += self.step_count.mean().item()
 
-        stats["mean_square_discounted_running_reward"] += (
-            self.discounted_running_reward**2
-        )
+        stats["mean_square_discounted_running_reward"] += self.discounted_running_reward ** 2
         not_done = ~done
 
         self.discounted_running_reward *= not_done
@@ -602,7 +627,7 @@ def create_optimizer(model):
     )
 
 
-def compute_gradients(data, learner_state, stats):
+def compute_gradients(data, learner_state, stats, curriculum):
     global TTYREC_ENVPOOL, TTYREC_HIDDEN_STATE
     model = learner_state.model
 
@@ -684,9 +709,24 @@ def compute_gradients(data, learner_state, stats):
 
     rewards = env_outputs["reward"] * FLAGS.reward_scale
     if FLAGS.rms_reward_norm:
-        reward_std = stats["mean_square_discounted_running_reward"].mean() ** 0.5
-        # print(reward_std)
-        rewards /= max(0.01, reward_std)
+        if curriculum is None:
+            reward_std = torch.max(0.01, stats["mean_square_discounted_running_reward"].mean() ** 0.5)
+        else:
+            # We're cheating by passing tasks through the cursor since we can't pass info dicts in moolib
+            tasks = env_outputs["tty_cursor"]
+            stds = {t: curriculum.curriculum.stat_recorder.episode_returns[t].std(
+            ) for t in range(curriculum.num_tasks)}
+
+            # Check for invalid std dev values
+            for k, v in stds.items():
+                if v is None or math.isnan(v):
+                    stds[k] = stats["mean_square_discounted_running_reward"].mean() ** 0.5
+
+            reward_std = tasks.cpu().apply_(lambda t: stds[int(t)]).cuda()
+
+        reward_scale = torch.clamp(reward_std, min=0.01)
+        rewards /= reward_scale
+        stats["reward_scale"] += reward_scale
         stats["reward_normalised"] += rewards.mean().item()
     if FLAGS.reward_clip:
         rewards = torch.clip(rewards, -FLAGS.reward_clip, FLAGS.reward_clip)
@@ -781,16 +821,22 @@ def step_optimizer(learner_state, stats):
     stats["optimizer_steps"] += 1
 
 
-def log(stats, step, is_global=False, curriculum=None):
+def log(stats, step, is_global=False, curriculum=None, allowlist=None):
+    allowlist = stats.keys() if allowlist is None else allowlist
     stats_values = {}
     prefix = "global/" if is_global else "local/"
     for k, v in stats.items():
-        if is_global and "min" not in k and "max" not in k:     # Reduce logging file size
+        if not is_global and k in allowlist and "max" in k:
+            stats_values[prefix + k] = v.result()
+            continue
+
+        if is_global and k in allowlist and "max" not in k:     # Reduce logging file size
             stats_values[prefix + k] = v.result()
         v.reset()
 
     if is_global:
-        logging.info(stats_values["global/mean_episode_return"])
+        mer = stats_values["global/mean_episode_return"]
+        logging.info("Mean episode Return %g", mer if mer is not None else 0)
     # logging.info(stats_values)
     # if not is_global:
     #     record.log_to_file(**stats_values)
@@ -824,8 +870,9 @@ def load_checkpoint(checkpoint_path, learner_state):
 
 def calculate_sps(stats, delta, prev_steps):
     env_train_steps = stats["env_train_steps"].result()
-    logging.info("calculate_sps %g steps in %g", env_train_steps - prev_steps, delta)
     stats["SPS"] += (env_train_steps - prev_steps) / delta
+    logging.info("calculate_sps %g steps in %g: %g", env_train_steps -
+                 prev_steps, delta, (env_train_steps - prev_steps) / delta)
     return env_train_steps
 
 
@@ -833,19 +880,61 @@ def uid():
     return "%s:%i:%s" % (socket.gethostname(), os.getpid(), coolname.generate_slug(2))
 
 
-def setup_curriculum(FLAGS, curriculum_method='dr'):
+def setup_curriculum(FLAGS, model=None):
     sample_env = hackrl.environment.create_env(FLAGS)
-    task_names = lambda task, idx: task.__name__
+
+    def task_names(task, idx): return task.__name__
+
     if FLAGS.curriculum_method == "sq":
-        curriculum = SequentialCurriculum([[NetHackScout, NetHackStaircase, NetHackScore], [NetHackGold, NetHackStaircasePet, NetHackEat, NetHackScore], NetHackScore], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
+        print("Using Sequential Curriculum")
+        curriculum = SequentialCurriculum([
+            [NetHackScout, NetHackStaircase, NetHackScore],
+            [NetHackGold, NetHackStaircasePet, NetHackEat, NetHackScore],
+            NetHackScore
+        ], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
     elif FLAGS.curriculum_method == "dr":
-        curriculum = DomainRandomization(TaskSpace(6, [NetHackScore, NetHackStaircase, NetHackStaircasePet, NetHackGold, NetHackEat, NetHackScout]), record_stats=True, task_names=task_names)
+        print("Using Domain Randomization")
+        curriculum = DomainRandomization(sample_env.task_space, record_stats=True, task_names=task_names)
+    elif FLAGS.curriculum_method == "plr":
+        print("Using Prioritized Level Replay")
+        evaluator = MoolibEvaluator(model, device="cuda")
+        curriculum = PrioritizedLevelReplay(
+            sample_env.task_space,
+            sample_env.observation_space,
+            num_steps=FLAGS.batch_size,
+            num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
+            num_minibatches=1,
+            gamma=FLAGS.discounting,
+            gae_lambda=0.95,
+            task_sampler_kwargs_dict={"strategy": "value_l1", "alpha": 0.25},
+            evaluator=evaluator,
+            lstm_size=FLAGS.baseline.hidden_dim,
+            record_stats=True,
+            task_names=task_names,
+            device=FLAGS.device,
+        )
+    elif FLAGS.curriculum_method == "centralplr":
+        print("Using Central Prioritized Level Replay")
+        curriculum = CentralizedPrioritizedLevelReplay(
+            sample_env.task_space,
+            num_steps=FLAGS.batch_size,
+            num_processes=FLAGS.actor_batch_size,
+            gamma=FLAGS.discounting,
+            gae_lambda=0.95,
+            task_sampler_kwargs_dict={"strategy": "value_l1"},
+            record_stats=True,
+            task_names=task_names
+        )
+    elif FLAGS.curriculum_method == "noop":
+        print("Using Noop Curriculum")
+        curriculum = NoopCurriculum(NetHackScore, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
     curriculum = make_multiprocessing_curriculum(curriculum)
+    task_space = sample_env.task_space
     del sample_env
-    logging.info("curriculum: %s", curriculum_method)
-    return curriculum
+    logging.info("curriculum: %s", FLAGS.curriculum_method)
+    return curriculum, task_space
 
 
 omegaconf.OmegaConf.register_new_resolver("uid", uid, use_cache=True)
@@ -877,17 +966,6 @@ def main(cfg):
 
     logging.info("train_id: %s", train_id)
 
-    curriculum = None
-    if FLAGS.syllabus:
-        curriculum = setup_curriculum(FLAGS)
-
-    envs = moolib.EnvPool(
-        lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
-        num_processes=FLAGS.num_actor_cpus,
-        batch_size=FLAGS.actor_batch_size,
-        num_batches=FLAGS.num_actor_batches,
-    )
-
     if FLAGS.use_kickstarting:
         student = hackrl.models.create_model(FLAGS, FLAGS.device)
         load_data = torch.load(FLAGS.kickstarting_path)
@@ -911,6 +989,17 @@ def main(cfg):
         model_numel=model_numel,
     )
 
+    curriculum = task_space = None
+    if FLAGS.syllabus:
+        curriculum, task_space = setup_curriculum(FLAGS, model=model)
+
+    envs = moolib.EnvPool(
+        lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
+        num_processes=FLAGS.num_actor_cpus,
+        batch_size=FLAGS.actor_batch_size,
+        num_batches=FLAGS.num_actor_batches,
+    )
+
     if FLAGS.wandb:
         wandb.init(
             project="syllabus",
@@ -918,6 +1007,7 @@ def main(cfg):
             group=FLAGS.group,
             entity=FLAGS.entity,
             name=FLAGS.exp_name,
+            save_code=True,
         )
 
     env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
@@ -946,6 +1036,8 @@ def main(cfg):
         "env_train_steps": StatSum(),
         "optimizer_steps": StatSum(),
         "running_reward": StatMean(),
+        "discounted_running_reward": StatMean(),
+        "reward_scale": StatMean(),
         "running_step": StatMean(),
         "steps_done": StatSum(),
         "episodes_done": StatSum(),
@@ -976,7 +1068,37 @@ def main(cfg):
         "running_advantages": StatMean(cumulative=True),
         "sample_advantages": StatMean(),
         "supervised_loss": StatMean(),
+        "mean_dungeon_level": StatMean(),
+        "mean_character_level": StatMean(),
+        "mean_gold": StatMean(),
+        "max_dungeon_level": StatMax(),
+        "max_character_level": StatMax(),
+        "max_gold": StatMax(),
     }
+
+    stats_allowlist = [
+        "mean_episode_return",
+        "mean_episode_step",
+        "SPS",
+        "running_reward",
+        "discounted_running_reward",
+        "reward_scale",
+        "running_step",
+        "unclipped_grad_norm",
+        "policy_loss",
+        "mean_policy_lag",
+        "baseline_loss",
+        "mean_baseline_value",
+        "entropy_loss",
+        "mean_entropy_value",
+        "reward_normalised",
+        "mean_dungeon_level",
+        "mean_character_level",
+        "mean_gold",
+        "max_dungeon_level",
+        "max_character_level",
+        "max_gold",
+    ]
     learner_state.global_stats = copy.deepcopy(stats)
 
     checkpoint_path = os.path.join(FLAGS.savedir, "checkpoint.tar")
@@ -1099,8 +1221,8 @@ def main(cfg):
 
             steps = learner_state.global_stats["env_train_steps"].result()
 
-            log(stats, step=steps, is_global=False)
-            log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum)
+            log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
+            log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
 
         if is_leader:
             if not was_leader:
@@ -1135,15 +1257,15 @@ def main(cfg):
 
         if accumulator.has_gradients():
             gradient_stats = accumulator.get_gradient_stats()
-            #logging.info("batch_size: %s", gradient_stats["batch_size"])
-            #logging.info("virtual_batch_size: %s", stats["virtual_batch_size"])
-            #logging.info("num_gradients: %s", gradient_stats["num_gradients"])
+            # logging.info("batch_size: %s", gradient_stats["batch_size"])
+            # logging.info("virtual_batch_size: %s", stats["virtual_batch_size"])
+            # logging.info("num_gradients: %s", gradient_stats["num_gradients"])
             stats["virtual_batch_size"] += gradient_stats["batch_size"]
             stats["num_gradients"] += gradient_stats["num_gradients"]
             step_optimizer(learner_state, stats)
             accumulator.zero_gradients()
         elif not learn_batcher.empty() and accumulator.wants_gradients():
-            compute_gradients(learn_batcher.get(), learner_state, stats)
+            compute_gradients(learn_batcher.get(), learner_state, stats, curriculum)
             accumulator.reduce_gradients(FLAGS.batch_size)
         else:
             if accumulator.wants_gradients():
@@ -1175,6 +1297,52 @@ def main(cfg):
             actor_outputs = nest.map(lambda t: t.squeeze(0), actor_outputs)
             action = actor_outputs["action"]
             env_state.update(cpu_env_outputs, action, stats)
+            if curriculum is not None and FLAGS.curriculum_method == "centralplr":
+                next_value = actor_outputs["baseline"]
+                tasks = [task_space.decode(int(t)) for t in cpu_env_outputs["tty_cursor"]]
+                rewards = cpu_env_outputs["reward"]
+                if FLAGS.rms_reward_norm and curriculum is not None:
+                    reward_tasks = cpu_env_outputs["tty_cursor"]
+                    stds = {t: curriculum.curriculum.stat_recorder.episode_returns[t].std(
+                    ) for t in range(curriculum.num_tasks)}
+
+                    # Check for invalid std dev values
+                    for k, v in stds.items():
+                        if v is None or math.isnan(v):
+                            stds[k] = stats["mean_square_discounted_running_reward"].mean() ** 0.5
+
+                    reward_std = reward_tasks.cpu().apply_(lambda t: stds[int(t)]).cuda()
+
+                    reward_scale = torch.clamp(reward_std, min=0.01)
+                    rewards /= reward_scale.cpu()
+                update = {
+                    "update_type": "on_demand",
+                    "metrics": {
+                        "value": actor_outputs["baseline"].view(-1, 1),
+                        "next_value": next_value.view(-1, 1),
+                        "rew": rewards,
+                        "dones": cpu_env_outputs["done"],
+                        "tasks": tasks,
+                    },
+                }
+                curriculum.update(update)
+
+            # Track end game stats
+            done_count = torch.sum(cpu_env_outputs["done"]).item()
+            final_dungeon_level = cpu_env_outputs["blstats"][:, 12] * cpu_env_outputs["done"]
+            final_character_level = cpu_env_outputs["blstats"][:, 18] * cpu_env_outputs["done"]
+            final_gold = cpu_env_outputs["blstats"][:, 13] * cpu_env_outputs["done"]
+            if done_count > 0:
+                mean_dungeon_level = final_dungeon_level.sum().item() / done_count
+                mean_character_level = final_character_level.sum().item() / done_count
+                mean_gold = final_gold.sum().item() / done_count
+                stats["mean_dungeon_level"] += mean_dungeon_level
+                stats["mean_character_level"] += mean_character_level
+                stats["mean_gold"] += mean_gold
+                stats["max_dungeon_level"] += final_dungeon_level.max().item()
+                stats["max_character_level"] += final_character_level.max().item()
+                stats["max_gold"] += final_gold.max().item()
+
             del cpu_env_outputs  # envs.step invalidates cpu_env_outputs.
             env_state.future = envs.step(cur_index, action)
 

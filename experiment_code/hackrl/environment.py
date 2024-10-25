@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from . import tasks
-from . import wrappers
+from nle import nethack
+from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
 from syllabus.core import MultiProcessingSyncWrapper
 from syllabus.examples.task_wrappers import NethackTaskWrapper
-from nle import nethack
+
+from . import tasks, wrappers
 
 
 class GymConvWrapper():
@@ -81,24 +82,18 @@ def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
         )
 
     if flags.syllabus:
+        env = GymV21CompatibilityV0(env=env)
         env = NethackTaskWrapper(env)
 
     if curriculum is not None:
         env = MultiProcessingSyncWrapper(
             env,
             curriculum.get_components(),
-            update_on_step=False,
+            update_on_step=True,
             task_space=env.task_space,
             buffer_size=1,
+            batch_size=64,
         )
         env = GymConvWrapper(env)
-    # if task_queue is not None and update_queue is not None:
-    #     env = MultiProcessingSyncWrapper(
-    #         env,
-    #         task_queue,
-    #         update_queue,
-    #         update_on_step=False,
-    #         task_space=env.task_space,
-    #     )
 
     return env
