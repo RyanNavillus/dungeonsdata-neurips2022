@@ -870,7 +870,7 @@ def log(stats, step, is_global=False, is_eval=False, curriculum=None, allowlist=
     # if not is_global:
     #     record.log_to_file(**stats_values)
 
-    if FLAGS.wandb:
+    if FLAGS.wandb and is_global:
         wandb.log(stats_values, step=step)
         if curriculum is not None:
             curriculum.log_metrics(wandb, step=step)
