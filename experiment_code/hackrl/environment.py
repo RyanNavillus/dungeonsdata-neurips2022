@@ -84,7 +84,7 @@ def create_env(flags, curriculum=None, task_wrapper=False):
     if flags.syllabus:
         if curriculum is not None or task_wrapper:
             env = GymV21CompatibilityV0(env=env)
-            env = NethackSeedWrapper(env)
+            env = NethackSeedWrapper(env, num_seeds=flags.num_seeds)
             if curriculum is not None:
                 env = MultiProcessingSyncWrapper(
                     env,

@@ -134,3 +134,4 @@ exp_name: Domain Randomization Seed
 run_id: 1
 eval_episodes: 10
 per_task_reward_norm: False
+num_seeds: 200

@@ -1019,7 +1019,7 @@ omegaconf.OmegaConf.register_new_resolver("uid", uid, use_cache=True)
 
 
 # Override config_path via --config_path.
-@hydra.main(config_path=".", config_name="config")
+@hydra.main(config_path=".", config_name="config", version_base="1.3")
 def main(cfg):
     global FLAGS
     FLAGS = cfg

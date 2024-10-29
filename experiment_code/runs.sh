@@ -39,11 +39,24 @@
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Sequential" curriculum_method="sq" run_id=9
 # python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="Sequential" curriculum_method="sq" run_id=10:
 
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=11
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=12
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=13
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=14
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR" curriculum_method="plr" run_id=15:
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed" curriculum_method="dr" run_id=11
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed" curriculum_method="dr" run_id=12
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed" curriculum_method="dr" run_id=13
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed" curriculum_method="dr" run_id=14
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed" curriculum_method="dr" run_id=15
+
+
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_4000" curriculum_method="dr" run_id=16 num_seeds=4000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_4000" curriculum_method="dr" run_id=17 num_seeds=4000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_4000" curriculum_method="dr" run_id=18 num_seeds=4000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_4000" curriculum_method="dr" run_id=19 num_seeds=4000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_4000" curriculum_method="dr" run_id=20 num_seeds=4000
+
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_80000" curriculum_method="dr" run_id=21 num_seeds=80000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_80000" curriculum_method="dr" run_id=22 num_seeds=80000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_80000" curriculum_method="dr" run_id=23 num_seeds=80000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_80000" curriculum_method="dr" run_id=24 num_seeds=80000
+python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_Seed_80000" curriculum_method="dr" run_id=25 num_seeds=80000
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --constraint=volta32gb --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=monk-APPO  total_steps=2_000_000_000 character='mon-hum-neu-mal'
 
 # Behavioural Cloning Experiments
