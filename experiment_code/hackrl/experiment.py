@@ -870,10 +870,10 @@ def log(stats, step, is_global=False, is_eval=False, curriculum=None, allowlist=
     # if not is_global:
     #     record.log_to_file(**stats_values)
 
-    if FLAGS.wandb and is_global:
-        wandb.log(stats_values, step=step)
-        if curriculum is not None:
-            curriculum.log_metrics(wandb, step=step)
+    if FLAGS.wandb:
+        wandb.log(stats_values, step=step, commit=False)
+        if curriculum is not None and is_global:
+            curriculum.log_metrics(wandb, step=step+1)
 
 
 def save_checkpoint(checkpoint_path, learner_state):
@@ -1316,8 +1316,8 @@ def main(cfg):
             steps = learner_state.global_stats["env_train_steps"].result()
 
             log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
-            log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
             log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
+            log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
 
         if is_leader:
             if not was_leader:
