@@ -1,5 +1,5 @@
 from nle.env import tasks
-
+from syllabus.examples.task_wrappers import NetHackCollect, NetHackDescend, NetHackScoutClipped, NetHackSatiate, NetHackSeed
 
 ENVS = dict(
     staircase=tasks.NetHackStaircase,
@@ -10,4 +10,9 @@ ENVS = dict(
     eat=tasks.NetHackEat,
     scout=tasks.NetHackScout,
     challenge=tasks.NetHackChallenge,
+    collect=NetHackCollect,
+    descend=NetHackDescend,
+    scout_clipped=NetHackScoutClipped,
+    satiate=NetHackSatiate,
+    seed=NetHackSeed,
 )

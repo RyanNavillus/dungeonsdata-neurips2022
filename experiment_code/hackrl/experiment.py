@@ -9,7 +9,6 @@ import pprint
 import signal
 import socket
 import time
-from collections import defaultdict
 from typing import Optional
 
 import coolname
@@ -19,18 +18,19 @@ import hydra
 import numpy as np
 import omegaconf
 import render_utils
-import syllabus
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 from hackrl.core import nest, record, vtrace
 from nle.dataset import dataset, db, populate_db
-from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout, NetHackStaircase, NetHackStaircasePet
-from syllabus.core import make_multiprocessing_curriculum
+from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout
+from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum
 from syllabus.curricula import (CentralizedPrioritizedLevelReplay,
                                 DomainRandomization, NoopCurriculum,
                                 PrioritizedLevelReplay, SequentialCurriculum)
+from syllabus.examples.task_wrappers import NetHackCollect, NetHackDescend
+
 import moolib
 
 # TTYREC_ASYNC_ITERATOR = None
@@ -470,8 +470,8 @@ class GlobalStatsAccumulator:
 
 
 class EnvBatchState:
-    def __init__(self, flags, model):
-        batch_size = flags.actor_batch_size
+    def __init__(self, flags, model, actor_batch_size=None):
+        batch_size = actor_batch_size if actor_batch_size is not None else flags.actor_batch_size
         device = flags.device
         self.batch_size = batch_size
         self.prev_action = torch.zeros(batch_size).long().to(device)
@@ -486,6 +486,7 @@ class EnvBatchState:
         self.step_count = torch.zeros(batch_size)
 
         self.time_batcher = moolib.Batcher(flags.unroll_length + 1, flags.device)
+        self.prev_blstats = None
 
     def update(self, env_outputs, action, stats):
         self.prev_action = action
@@ -516,6 +517,36 @@ class EnvBatchState:
         self.discounted_running_reward *= not_done
         self.running_reward *= not_done
         self.step_count *= not_done
+
+        # Track end game stats
+        done_count = torch.sum(env_outputs["done"]).item()
+        # Done signal comes with the first step of the next episode, so we use the previous blstats
+        if self.prev_blstats is not None:
+            # Zero all non-finished episode values
+            dungeon_level = self.prev_blstats[:, 12]
+            character_level = self.prev_blstats[:, 18]
+            gold = self.prev_blstats[:, 13]
+            final_dungeon_level = torch.where(
+                env_outputs["done"], dungeon_level, torch.zeros_like(dungeon_level))
+            final_character_level = torch.where(
+                env_outputs["done"], character_level, torch.zeros_like(character_level))
+            final_gold = torch.where(
+                env_outputs["done"], gold, torch.zeros_like(gold))
+            if done_count > 0:
+                # Only log stats if there is at least one value to record
+                mean_final_dungeon_level = final_dungeon_level.float().sum().item() / float(done_count)
+                mean_final_character_level = final_character_level.float().sum().item() / float(done_count)
+                mean_final_gold = final_gold.float().sum().item() / float(done_count)
+                max_final_dungeon_level = final_dungeon_level.float().max().item()
+                max_final_character_level = final_character_level.float().max().item()
+                max_final_gold = final_gold.float().max().item()
+                stats["mean_final_dungeon_level"] += mean_final_dungeon_level
+                stats["mean_final_character_level"] += mean_final_character_level
+                stats["mean_final_gold"] += mean_final_gold
+                stats["max_final_dungeon_level"] += max_final_dungeon_level
+                stats["max_final_character_level"] += max_final_character_level
+                stats["max_final_gold"] += max_final_gold
+        self.prev_blstats = env_outputs["blstats"]
 
 
 def compute_baseline_loss(
@@ -709,8 +740,9 @@ def compute_gradients(data, learner_state, stats, curriculum):
 
     rewards = env_outputs["reward"] * FLAGS.reward_scale
     if FLAGS.rms_reward_norm:
-        if curriculum is None:
-            reward_std = torch.max(0.01, stats["mean_square_discounted_running_reward"].mean() ** 0.5)
+        if not FLAGS.per_task_reward_norm or curriculum is None:
+            reward_std = stats["mean_square_discounted_running_reward"].mean() ** 0.5
+            reward_scale = max(0.01, reward_std)
         else:
             # We're cheating by passing tasks through the cursor since we can't pass info dicts in moolib
             tasks = env_outputs["tty_cursor"]
@@ -723,8 +755,8 @@ def compute_gradients(data, learner_state, stats, curriculum):
                     stds[k] = stats["mean_square_discounted_running_reward"].mean() ** 0.5
 
             reward_std = tasks.cpu().apply_(lambda t: stds[int(t)]).cuda()
+            reward_scale = torch.clamp(reward_std, min=0.01)
 
-        reward_scale = torch.clamp(reward_std, min=0.01)
         rewards /= reward_scale
         stats["reward_scale"] += reward_scale
         stats["reward_normalised"] += rewards.mean().item()
@@ -821,16 +853,13 @@ def step_optimizer(learner_state, stats):
     stats["optimizer_steps"] += 1
 
 
-def log(stats, step, is_global=False, curriculum=None, allowlist=None):
+def log(stats, step, is_global=False, is_eval=False, curriculum=None, allowlist=None):
     allowlist = stats.keys() if allowlist is None else allowlist
     stats_values = {}
     prefix = "global/" if is_global else "local/"
+    prefix = "eval/" if is_eval else prefix
     for k, v in stats.items():
-        if not is_global and k in allowlist and "max" in k:
-            stats_values[prefix + k] = v.result()
-            continue
-
-        if is_global and k in allowlist and "max" not in k:     # Reduce logging file size
+        if is_global or is_eval and k in allowlist:     # Reduce logging file size
             stats_values[prefix + k] = v.result()
         v.reset()
 
@@ -880,16 +909,65 @@ def uid():
     return "%s:%i:%s" % (socket.gethostname(), os.getpid(), coolname.generate_slug(2))
 
 
-def setup_curriculum(FLAGS, model=None):
-    sample_env = hackrl.environment.create_env(FLAGS)
+def evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stat_dict, next_eval_env_index=0):
+    model.eval()
+    initial_episodes_done = eval_stat_dict["episodes_done"].value
+    print("Evaluating agent")
+    while eval_stat_dict["episodes_done"].value < initial_episodes_done + FLAGS.eval_episodes:
+        # Generate data.
+        cur_eval_index = next_eval_env_index
+        next_eval_env_index = (next_eval_env_index + 1) % FLAGS.num_actor_batches
 
-    def task_names(task, idx): return task.__name__
+        eval_env_state = eval_env_states[cur_eval_index]
+        if eval_env_state.future is None:
+            eval_env_state.future = eval_envs.step(cur_eval_index, eval_env_state.prev_action)
+        cpu_eval_env_outputs = eval_env_state.future.result()
+
+        eval_env_outputs = nest.map(
+            lambda t: t.to(FLAGS.device, copy=True), cpu_eval_env_outputs
+        )
+
+        eval_env_outputs["prev_action"] = eval_env_state.prev_action
+        prev_eval_core_state = eval_env_state.core_state
+        model.eval()
+        with torch.no_grad():
+            eval_actor_outputs, eval_env_state.core_state = model(
+                nest.map(lambda t: t.unsqueeze(0), eval_env_outputs),
+                eval_env_state.core_state,
+            )
+        eval_actor_outputs = nest.map(lambda t: t.squeeze(0), eval_actor_outputs)
+        eval_action = eval_actor_outputs["action"]
+        eval_env_state.update(cpu_eval_env_outputs, eval_action, eval_stat_dict)
+        eval_env_state.future = eval_envs.step(cur_eval_index, eval_action)
+        last_data = {
+            "env_outputs": eval_env_outputs,
+            "actor_outputs": eval_actor_outputs,
+        }
+        eval_env_state.time_batcher.stack(last_data)
+
+        if not eval_env_state.time_batcher.empty():
+            data = eval_env_state.time_batcher.get()
+            data["initial_core_state"] = eval_env_state.initial_core_state
+
+            # We need the last entry of the previous time batch
+            # to be put into the first entry of this time batch,
+            # with the initial_core_state to match
+            eval_env_state.initial_core_state = prev_eval_core_state
+            eval_env_state.time_batcher.stack(last_data)
+    return eval_env_states, next_eval_env_index
+
+
+def setup_curriculum(FLAGS, model=None):
+    sample_env = hackrl.environment.create_env(FLAGS, task_wrapper=True)
+
+    # def task_names(task, idx): return task.__name__
+    def task_names(task, idx): return task
 
     if FLAGS.curriculum_method == "sq":
         print("Using Sequential Curriculum")
         curriculum = SequentialCurriculum([
-            [NetHackScout, NetHackStaircase, NetHackScore],
-            [NetHackGold, NetHackStaircasePet, NetHackEat, NetHackScore],
+            [NetHackScout, NetHackDescend, NetHackScore],
+            [NetHackGold, NetHackDescend, NetHackEat, NetHackScore],
             NetHackScore
         ], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
     elif FLAGS.curriculum_method == "dr":
@@ -1000,6 +1078,13 @@ def main(cfg):
         num_batches=FLAGS.num_actor_batches,
     )
 
+    eval_envs = moolib.EnvPool(
+        lambda: hackrl.environment.create_env(FLAGS),
+        num_processes=10,
+        batch_size=512,
+        num_batches=FLAGS.num_actor_batches,
+    )
+
     if FLAGS.wandb:
         wandb.init(
             project="syllabus",
@@ -1011,6 +1096,7 @@ def main(cfg):
         )
 
     env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
+    eval_env_states = [EnvBatchState(FLAGS, model, actor_batch_size=512) for _ in range(FLAGS.num_actor_batches)]
 
     rpc = moolib.Rpc()
     rpc.set_name(FLAGS.local_name)
@@ -1068,12 +1154,12 @@ def main(cfg):
         "running_advantages": StatMean(cumulative=True),
         "sample_advantages": StatMean(),
         "supervised_loss": StatMean(),
-        "mean_dungeon_level": StatMean(),
-        "mean_character_level": StatMean(),
-        "mean_gold": StatMean(),
-        "max_dungeon_level": StatMax(),
-        "max_character_level": StatMax(),
-        "max_gold": StatMax(),
+        "mean_final_dungeon_level": StatMean(),
+        "mean_final_character_level": StatMean(),
+        "mean_final_gold": StatMean(),
+        "max_final_dungeon_level": StatMax(),
+        "max_final_character_level": StatMax(),
+        "max_final_gold": StatMax(),
     }
 
     stats_allowlist = [
@@ -1092,14 +1178,15 @@ def main(cfg):
         "entropy_loss",
         "mean_entropy_value",
         "reward_normalised",
-        "mean_dungeon_level",
-        "mean_character_level",
-        "mean_gold",
-        "max_dungeon_level",
-        "max_character_level",
-        "max_gold",
+        "mean_final_dungeon_level",
+        "mean_final_character_level",
+        "mean_final_gold",
+        "max_final_dungeon_level",
+        "max_final_character_level",
+        "max_final_gold",
     ]
     learner_state.global_stats = copy.deepcopy(stats)
+    eval_stats = {k: copy.deepcopy(v) for k, v in stats.items()}
 
     checkpoint_path = os.path.join(FLAGS.savedir, "checkpoint.tar")
 
@@ -1156,10 +1243,12 @@ def main(cfg):
     prev_env_train_steps = 0
     prev_global_env_train_steps = 0
     next_env_index = 0
+    next_eval_env_index = 0
     last_log = now
     last_reduce_stats = now
     is_leader = False
     is_connected = False
+    prev_blstats = None
     while not terminate:
         prev_now = now
         now = time.time()
@@ -1214,6 +1303,10 @@ def main(cfg):
             global_stats_accumulator.reduce(stats)
             global_stats_accumulator.reset()
 
+            # Evaluate agent on test seeds
+            eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
+                                                                  next_eval_env_index=next_eval_env_index)
+
             prev_env_train_steps = calculate_sps(stats, delta, prev_env_train_steps)
             prev_global_env_train_steps = calculate_sps(
                 learner_state.global_stats, delta, prev_global_env_train_steps
@@ -1223,6 +1316,7 @@ def main(cfg):
 
             log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
             log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
+            log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
 
         if is_leader:
             if not was_leader:
@@ -1301,7 +1395,7 @@ def main(cfg):
                 next_value = actor_outputs["baseline"]
                 tasks = [task_space.decode(int(t)) for t in cpu_env_outputs["tty_cursor"]]
                 rewards = cpu_env_outputs["reward"]
-                if FLAGS.rms_reward_norm and curriculum is not None:
+                if FLAGS.rms_reward_norm and FLAGS.per_task_reward_norm and curriculum is not None:
                     reward_tasks = cpu_env_outputs["tty_cursor"]
                     stds = {t: curriculum.curriculum.stat_recorder.episode_returns[t].std(
                     ) for t in range(curriculum.num_tasks)}
@@ -1326,22 +1420,6 @@ def main(cfg):
                     },
                 }
                 curriculum.update(update)
-
-            # Track end game stats
-            done_count = torch.sum(cpu_env_outputs["done"]).item()
-            final_dungeon_level = cpu_env_outputs["blstats"][:, 12] * cpu_env_outputs["done"]
-            final_character_level = cpu_env_outputs["blstats"][:, 18] * cpu_env_outputs["done"]
-            final_gold = cpu_env_outputs["blstats"][:, 13] * cpu_env_outputs["done"]
-            if done_count > 0:
-                mean_dungeon_level = final_dungeon_level.sum().item() / done_count
-                mean_character_level = final_character_level.sum().item() / done_count
-                mean_gold = final_gold.sum().item() / done_count
-                stats["mean_dungeon_level"] += mean_dungeon_level
-                stats["mean_character_level"] += mean_character_level
-                stats["mean_gold"] += mean_gold
-                stats["max_dungeon_level"] += final_dungeon_level.max().item()
-                stats["max_character_level"] += final_character_level.max().item()
-                stats["max_gold"] += final_gold.max().item()
 
             del cpu_env_outputs  # envs.step invalidates cpu_env_outputs.
             env_state.future = envs.step(cur_index, action)

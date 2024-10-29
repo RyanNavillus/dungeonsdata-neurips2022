@@ -11,28 +11,31 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import gymnasium as gym
 from nle import nethack
 from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
 from syllabus.core import MultiProcessingSyncWrapper
-from syllabus.examples.task_wrappers import NethackTaskWrapper
+from syllabus.examples.task_wrappers import NethackTaskWrapper, NethackSeedWrapper
 
 from . import tasks, wrappers
 
 
-class GymConvWrapper():
+class GymConvWrapper(gym.Wrapper):
     def __init__(self, env):
+        super().__init__(env)
         self.env = env
+        self.task_space = self.env.task_space
 
     def step(self, action):
         obs, rew, term, trunc, info = self.env.step(action)
         return obs, rew, term or trunc, info
 
     def reset(self):
-        obs, info = self.env.reset()
+        obs, _ = self.env.reset()
         return obs
 
 
-def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
+def create_env(flags, curriculum=None, task_wrapper=False):
     env_class = tasks.ENVS[flags.env.name]
 
     observation_keys = (
@@ -46,7 +49,7 @@ def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
         # "colors",
         # "chars",
         # "glyphs",
-        # "inv_glyphs",
+        "inv_glyphs",
         # "inv_strs",
         # "inv_letters",
         # "inv_oclasses",
@@ -61,15 +64,12 @@ def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
         penalty_mode=flags.fn_penalty_step,
         options=nethack.NETHACKOPTIONS,
     )
-    if flags.env.name == "challenge":
+    if flags.env.name in ["seed", "challenge"]:
         kwargs.update(no_progress_timeout=150)
     else:
         kwargs.update(actions=nethack.ACTIONS)
-
     if flags.env.name in ("staircase", "pet", "oracle"):
         kwargs.update(reward_win=flags.reward_win, reward_lose=flags.reward_lose)
-    # else:  # print warning once
-    # warnings.warn("Ignoring flags.reward_win and flags.reward_lose")
     if flags.state_counter != "none":
         kwargs.update(state_counter=flags.state_counter)
     env = env_class(**kwargs)
@@ -82,18 +82,18 @@ def create_env(flags, curriculum=None, task_queue=None, update_queue=None):
         )
 
     if flags.syllabus:
-        env = GymV21CompatibilityV0(env=env)
-        env = NethackTaskWrapper(env)
-
-    if curriculum is not None:
-        env = MultiProcessingSyncWrapper(
-            env,
-            curriculum.get_components(),
-            update_on_step=True,
-            task_space=env.task_space,
-            buffer_size=1,
-            batch_size=64,
-        )
-        env = GymConvWrapper(env)
+        if curriculum is not None or task_wrapper:
+            env = GymV21CompatibilityV0(env=env)
+            env = NethackSeedWrapper(env)
+            if curriculum is not None:
+                env = MultiProcessingSyncWrapper(
+                    env,
+                    curriculum.get_components(),
+                    update_on_step=False,
+                    task_space=env.task_space,
+                    buffer_size=1,
+                    batch_size=64,
+                )
+            env = GymConvWrapper(env)
 
     return env
