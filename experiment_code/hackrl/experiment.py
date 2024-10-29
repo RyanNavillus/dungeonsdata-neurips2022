@@ -1080,8 +1080,8 @@ def main(cfg):
 
     eval_envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS),
-        num_processes=10,
-        batch_size=512,
+        num_processes=FLAGS.num_actor_cpus,
+        batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
     )
 
@@ -1096,7 +1096,8 @@ def main(cfg):
         )
 
     env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
-    eval_env_states = [EnvBatchState(FLAGS, model, actor_batch_size=512) for _ in range(FLAGS.num_actor_batches)]
+    eval_env_states = [EnvBatchState(FLAGS, model, actor_batch_size=FLAGS.actor_batch_size)
+                       for _ in range(FLAGS.num_actor_batches)]
 
     rpc = moolib.Rpc()
     rpc.set_name(FLAGS.local_name)
