@@ -28,7 +28,7 @@ from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout
 from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum
 from syllabus.curricula import (CentralizedPrioritizedLevelReplay,
                                 DomainRandomization, NoopCurriculum,
-                                PrioritizedLevelReplay, SequentialCurriculum)
+                                PrioritizedLevelReplay, SequentialCurriculum, SimpleCentralizedPrioritizedLevelReplay)
 from syllabus.examples.task_wrappers import NetHackCollect, NetHackDescend
 
 import moolib
@@ -550,7 +550,7 @@ class EnvBatchState:
 
 
 def compute_baseline_loss(
-    actor_baseline, learner_baseline, target, clip_delta_value=None, stats=None
+    actor_baseline, learner_baseline, target, clip_delta_value=None, stats=None, per_item=False
 ):
     baseline_loss = (target - learner_baseline) ** 2
 
@@ -574,6 +574,10 @@ def compute_baseline_loss(
         stats["max_baseline_value"] += torch.max(learner_baseline).item()
         stats["min_baseline_value"] += torch.min(learner_baseline).item()
         stats["mean_baseline_value"] += torch.mean(learner_baseline).item()
+
+    if per_item:
+        return baseline_loss
+
     return 0.5 * torch.mean(baseline_loss)
 
 
@@ -658,7 +662,7 @@ def create_optimizer(model):
     )
 
 
-def compute_gradients(data, learner_state, stats, curriculum):
+def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
     global TTYREC_ENVPOOL, TTYREC_HIDDEN_STATE
     model = learner_state.model
 
@@ -669,6 +673,9 @@ def compute_gradients(data, learner_state, stats, curriculum):
     model.train()
 
     total_loss = 0
+
+    if actor_index is None:
+        actor_index = 0
 
     if FLAGS.supervised_loss or FLAGS.behavioural_clone:
         ttyrec_data = TTYREC_ENVPOOL.result()
@@ -793,13 +800,36 @@ def compute_gradients(data, learner_state, stats, curriculum):
         stats,
     )
 
-    baseline_loss = FLAGS.baseline_cost * compute_baseline_loss(
+    baseline_loss_itemized = compute_baseline_loss(
         actor_outputs["baseline"],
         learner_outputs["baseline"],
         vtrace_returns.vs,
         FLAGS.appo_clip_baseline,
         stats,
+        per_item=True,
     )
+    baseline_loss = FLAGS.baseline_cost * 0.5 * torch.mean(baseline_loss_itemized)
+
+    # Syllabus curriculum update
+    if FLAGS.syllabus and FLAGS.curriculum_method == "simpleplr":
+        current_tasks = env_outputs["tty_cursor"]
+        current_dones = env_outputs["done"]
+        with torch.no_grad():
+            scores = FLAGS.baseline_cost * (baseline_loss_itemized ** 0.5).cpu()
+
+        update = {
+            "update_type": "on_demand",
+            "metrics": {
+                "scores": scores.abs(),
+                "dones": current_dones,
+                "tasks": current_tasks,
+                "actors": np.arange(actor_index, actor_index + FLAGS.batch_size),
+            },
+        }
+        curriculum.update(update)
+
+    # Not sure if this is correct for every config
+    actor_index = (actor_index + baseline_loss_itemized.shape[1]) % (FLAGS.actor_batch_size * FLAGS.num_actor_batches)
 
     total_loss += entropy_loss + pg_loss + baseline_loss
 
@@ -999,6 +1029,16 @@ def setup_curriculum(FLAGS, model=None):
             num_processes=FLAGS.actor_batch_size,
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
+            task_sampler_kwargs_dict={"strategy": "value_l1"},
+            record_stats=True,
+            task_names=task_names
+        )
+    elif FLAGS.curriculum_method == "simpleplr":
+        print("Using Simple Prioritized Level Replay")
+        curriculum = SimpleCentralizedPrioritizedLevelReplay(
+            sample_env.task_space,
+            num_steps=FLAGS.batch_size,
+            num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
             task_sampler_kwargs_dict={"strategy": "value_l1"},
             record_stats=True,
             task_names=task_names
@@ -1249,7 +1289,7 @@ def main(cfg):
     last_reduce_stats = now
     is_leader = False
     is_connected = False
-    prev_blstats = None
+    actor_index = 0
     while not terminate:
         prev_now = now
         now = time.time()
@@ -1360,7 +1400,8 @@ def main(cfg):
             step_optimizer(learner_state, stats)
             accumulator.zero_gradients()
         elif not learn_batcher.empty() and accumulator.wants_gradients():
-            compute_gradients(learn_batcher.get(), learner_state, stats, curriculum)
+            compute_gradients(learn_batcher.get(), learner_state, stats, curriculum, actor_index)
+            actor_index = (actor_index + FLAGS.batch_size) % (FLAGS.actor_batch_size * FLAGS.num_actor_batches)
             accumulator.reduce_gradients(FLAGS.batch_size)
         else:
             if accumulator.wants_gradients():

@@ -48,7 +48,7 @@ exp_set: experiment-set  # spare parameter, useful for wandb grouping
 fixup_init: true
 fn_penalty_step: constant
 grad_norm_clipping: 4
-group: plr-seed
+group: simple-plr
 learning_rate: 0.0002
 # Savedir is used for storing the checkpoint(s),
 # including flags and any global settings/stats for the training
@@ -129,8 +129,8 @@ ttyrec_envpool_size: 4
 ttyrec_cpus: 10 
 
 syllabus: True
-curriculum_method: centralplr
-exp_name: Central Prioritized Level Replay Seed
+curriculum_method: simpleplr
+exp_name: Simple Prioritized Level Replay Seed
 run_id: 1
 eval_episodes: 10
 per_task_reward_norm: False
