@@ -210,6 +210,7 @@ def main():
         "--error": slurm_output,
         "--export": "ALL",
         "--wrap": " ".join(cmd.split() + FLAGS.args),
+        "--exclude": "vulcan[00-22],vulcan[25-26],legacygpu[00-07],clip[00-02],cbcb25,clip[07-09]",
     }
 
     execvlist = cmdlist(args)

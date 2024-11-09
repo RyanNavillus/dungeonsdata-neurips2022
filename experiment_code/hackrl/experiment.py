@@ -999,10 +999,10 @@ def setup_curriculum(FLAGS, model=None):
             [NetHackScout, NetHackDescend, NetHackScore],
             [NetHackGold, NetHackDescend, NetHackEat, NetHackScore],
             NetHackScore
-        ], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=True, task_names=task_names)
+        ], ["steps>=200000000", "steps>=500000000"], sample_env.task_space, record_stats=False, task_names=task_names)
     elif FLAGS.curriculum_method == "dr":
         print("Using Domain Randomization")
-        curriculum = DomainRandomization(sample_env.task_space, record_stats=True, task_names=task_names)
+        curriculum = DomainRandomization(sample_env.task_space, record_stats=False, task_names=task_names)
     elif FLAGS.curriculum_method == "plr":
         print("Using Prioritized Level Replay")
         evaluator = MoolibEvaluator(model, device="cuda")
@@ -1017,7 +1017,7 @@ def setup_curriculum(FLAGS, model=None):
             task_sampler_kwargs_dict={"strategy": "value_l1", "alpha": 0.25},
             evaluator=evaluator,
             lstm_size=FLAGS.baseline.hidden_dim,
-            record_stats=True,
+            record_stats=False,
             task_names=task_names,
             device=FLAGS.device,
         )
@@ -1030,7 +1030,7 @@ def setup_curriculum(FLAGS, model=None):
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
             task_sampler_kwargs_dict={"strategy": "value_l1"},
-            record_stats=True,
+            record_stats=False,
             task_names=task_names
         )
     elif FLAGS.curriculum_method == "simpleplr":
@@ -1286,6 +1286,7 @@ def main(cfg):
     next_env_index = 0
     next_eval_env_index = 0
     last_log = now
+    last_eval = now
     last_reduce_stats = now
     is_leader = False
     is_connected = False
@@ -1344,10 +1345,6 @@ def main(cfg):
             global_stats_accumulator.reduce(stats)
             global_stats_accumulator.reset()
 
-            # Evaluate agent on test seeds
-            eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
-                                                                  next_eval_env_index=next_eval_env_index)
-
             prev_env_train_steps = calculate_sps(stats, delta, prev_env_train_steps)
             prev_global_env_train_steps = calculate_sps(
                 learner_state.global_stats, delta, prev_global_env_train_steps
@@ -1356,7 +1353,12 @@ def main(cfg):
             steps = learner_state.global_stats["env_train_steps"].result()
 
             log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
-            log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
+            if now - last_eval >= FLAGS.log_interval * 10:
+                last_eval = now
+                # Evaluate agent on test seeds
+                eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
+                                                                    next_eval_env_index=next_eval_env_index)
+                log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
             log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
 
         if is_leader:

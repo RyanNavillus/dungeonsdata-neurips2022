@@ -132,6 +132,6 @@ syllabus: True
 curriculum_method: simpleplr
 exp_name: Simple Prioritized Level Replay Seed
 run_id: 1
-eval_episodes: 10
+eval_episodes: 100
 per_task_reward_norm: False
 num_seeds: 200
