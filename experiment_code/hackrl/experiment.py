@@ -901,7 +901,8 @@ def log(stats, step, is_global=False, is_eval=False, curriculum=None, allowlist=
     #     record.log_to_file(**stats_values)
 
     if FLAGS.wandb:
-        wandb.log(stats_values, step=step, commit=False)
+        stats_values["global_step"] = step
+        wandb.log(stats_values)
         if curriculum is not None and is_global:
             curriculum.log_metrics(wandb, step=step+1)
 
@@ -943,6 +944,7 @@ def evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stat_dict, nex
     model.eval()
     initial_episodes_done = eval_stat_dict["episodes_done"].value
     print("Evaluating agent")
+    start_time = time.time()
     while eval_stat_dict["episodes_done"].value < initial_episodes_done + FLAGS.eval_episodes:
         # Generate data.
         cur_eval_index = next_eval_env_index
@@ -984,6 +986,8 @@ def evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stat_dict, nex
             # with the initial_core_state to match
             eval_env_state.initial_core_state = prev_eval_core_state
             eval_env_state.time_batcher.stack(last_data)
+    end_time = time.time()
+    print("Evaluation took", end_time - start_time, "seconds")
     return eval_env_states, next_eval_env_index
 
 
@@ -1120,7 +1124,7 @@ def main(cfg):
 
     eval_envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS),
-        num_processes=FLAGS.num_actor_cpus,
+        num_processes=FLAGS.num_actor_cpus // 2,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
     )
