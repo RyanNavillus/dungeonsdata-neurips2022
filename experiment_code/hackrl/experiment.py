@@ -546,7 +546,7 @@ class EnvBatchState:
                 stats["max_final_dungeon_level"] += max_final_dungeon_level
                 stats["max_final_character_level"] += max_final_character_level
                 stats["max_final_gold"] += max_final_gold
-        self.prev_blstats = env_outputs["blstats"]
+        self.prev_blstats = env_outputs["blstats"].clone()
 
 
 def compute_baseline_loss(
