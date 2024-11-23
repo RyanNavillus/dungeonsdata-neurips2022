@@ -14,7 +14,7 @@
 import gymnasium as gym
 from nle import nethack
 from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
-from syllabus.core import MultiProcessingSyncWrapper
+from syllabus.core import GymnasiumSyncWrapper
 from syllabus.examples.task_wrappers import NethackTaskWrapper, NethackSeedWrapper
 
 from . import tasks, wrappers
@@ -30,8 +30,8 @@ class GymConvWrapper(gym.Wrapper):
         obs, rew, term, trunc, info = self.env.step(action)
         return obs, rew, term or trunc, info
 
-    def reset(self):
-        obs, _ = self.env.reset()
+    def reset(self, **kwargs):
+        obs, _ = self.env.reset(**kwargs)
         return obs
 
 
@@ -86,13 +86,12 @@ def create_env(flags, curriculum=None, task_wrapper=False):
             env = GymV21CompatibilityV0(env=env)
             env = NethackSeedWrapper(env, num_seeds=flags.num_seeds)
             if curriculum is not None:
-                env = MultiProcessingSyncWrapper(
+                env = GymnasiumSyncWrapper(
                     env,
-                    curriculum.get_components(),
-                    update_on_step=False,
-                    task_space=env.task_space,
-                    buffer_size=1,
-                    batch_size=64,
+                    env.task_space,
+                    curriculum.components,
+                    buffer_size=2,
+                    batch_size=128,
                 )
             env = GymConvWrapper(env)
 

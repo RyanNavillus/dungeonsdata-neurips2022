@@ -290,7 +290,8 @@ class ChaoticDwarvenGPT5(nn.Module):
             for _ in range(2)
         )
 
-    def forward(self, inputs, core_state):
+    def forward(self, inputs, core_state, get_action=True, get_logits=True, get_value=True):
+        assert get_action or get_value, "At least one of get_action or get_value must be True"
         T, B, C, H, W = inputs["screen_image"].shape
 
         if self.use_tty_only:
@@ -336,19 +337,24 @@ class ChaoticDwarvenGPT5(nn.Module):
 
         core_output = torch.flatten(torch.cat(core_output_list), 0, 1)
 
-        # -- [B' x A]
-        policy_logits = self.policy(core_output)
+        action = policy_logits = baseline = torch.zeros(T, B)
+        if get_value:
+            # -- [B' x 1]
+            baseline = self.baseline(core_output)
+            baseline = baseline.view(T, B)
 
-        # -- [B' x 1]
-        baseline = self.baseline(core_output)
+        if get_logits or get_action:
+            policy_logits = self.policy(core_output)
 
-        action = torch.multinomial(F.softmax(policy_logits, dim=1), num_samples=1)
+        if get_action:
+            # -- [B' x A]
+            action = torch.multinomial(F.softmax(policy_logits, dim=1), num_samples=1)
+            action = action.view(T, B)
 
-        policy_logits = policy_logits.view(T, B, -1)
-        baseline = baseline.view(T, B)
-        action = action.view(T, B)
+        if get_logits or get_action:
+            policy_logits = policy_logits.view(T, B, -1)
 
-        version = torch.ones_like(action) * self.version
+        version = torch.ones((T, B)) * self.version
 
         output = dict(
             policy_logits=policy_logits,
