@@ -129,9 +129,9 @@ ttyrec_envpool_size: 4
 ttyrec_cpus: 10 
 
 syllabus: True
-curriculum_method: noop
+curriculum_method: plr
 exp_name: Queue Testing
 run_id: 1
-eval_episodes: 10
+eval_episodes: 250
 per_task_reward_norm: False
 num_seeds: 200

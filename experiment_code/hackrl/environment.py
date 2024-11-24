@@ -37,7 +37,6 @@ class GymConvWrapper(gym.Wrapper):
 
 def create_env(flags, curriculum=None, task_wrapper=False):
     env_class = tasks.ENVS[flags.env.name]
-
     observation_keys = (
         "message",
         "blstats",
@@ -90,9 +89,10 @@ def create_env(flags, curriculum=None, task_wrapper=False):
                     env,
                     env.task_space,
                     curriculum.components,
-                    buffer_size=2,
-                    batch_size=128,
+                    buffer_size=8,
+                    batch_size=64,
+                    remove_keys=['glyphs', 'chars', 'colors', 'specials', 'blstats', 'message',
+                                 'inv_glyphs', 'inv_strs', 'inv_letters', 'inv_oclasses', 'misc'],
                 )
             env = GymConvWrapper(env)
-
     return env

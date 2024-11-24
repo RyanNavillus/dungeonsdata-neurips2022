@@ -25,7 +25,7 @@ import wandb
 from hackrl.core import nest, record, vtrace
 from nle.dataset import dataset, db, populate_db
 from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout
-from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum
+from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum, DummyEvaluator
 from syllabus.curricula import (CentralizedPrioritizedLevelReplay,
                                 DomainRandomization, NoopCurriculum,
                                 PrioritizedLevelReplay, SequentialCurriculum, SimpleCentralizedPrioritizedLevelReplay)
@@ -1008,11 +1008,12 @@ def setup_curriculum(FLAGS, model=None):
     elif FLAGS.curriculum_method == "plr":
         print("Using Prioritized Level Replay")
         evaluator = MoolibEvaluator(model, device="cpu")
+        # evaluator = DummyEvaluator(sample_env.action_space)
         curriculum = PrioritizedLevelReplay(
             sample_env.task_space,
             sample_env.observation_space,
             num_steps=FLAGS.batch_size,
-            num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
+            num_processes=64,
             num_minibatches=1,
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
@@ -1050,7 +1051,7 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = NoopCurriculum(0, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
-    curriculum = make_multiprocessing_curriculum(curriculum)
+    curriculum = make_multiprocessing_curriculum(curriculum, max_envs=64)
     task_space = sample_env.task_space
     del sample_env
     logging.info("curriculum: %s", FLAGS.curriculum_method)
@@ -1120,12 +1121,12 @@ def main(cfg):
         num_batches=FLAGS.num_actor_batches,
     )
 
-    # eval_envs = moolib.EnvPool(
-    #     lambda: hackrl.environment.create_env(FLAGS),
-    #     num_processes=FLAGS.num_actor_cpus // 2,
-    #     batch_size=FLAGS.actor_batch_size,
-    #     num_batches=FLAGS.num_actor_batches,
-    # )
+    eval_envs = moolib.EnvPool(
+        lambda: hackrl.environment.create_env(FLAGS),
+        num_processes=FLAGS.num_actor_cpus // 2,
+        batch_size=FLAGS.actor_batch_size,
+        num_batches=FLAGS.num_actor_batches,
+    )
 
     if FLAGS.wandb:
         wandb.init(
@@ -1347,8 +1348,8 @@ def main(cfg):
             global_stats_accumulator.reset()
 
             # Evaluate agent on test seeds
-            # eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
-            #                                                       next_eval_env_index=next_eval_env_index)
+            eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
+                                                                  next_eval_env_index=next_eval_env_index)
 
             prev_env_train_steps = calculate_sps(stats, delta, prev_env_train_steps)
             prev_global_env_train_steps = calculate_sps(
@@ -1358,7 +1359,7 @@ def main(cfg):
             steps = learner_state.global_stats["env_train_steps"].result()
 
             log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
-            # log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
+            log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
             log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
 
         if is_leader:
