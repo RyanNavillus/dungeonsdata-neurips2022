@@ -21,7 +21,7 @@ hydra:
     dir: "${localdir}"
 
 activation_function: relu
-actor_batch_size: 512 # may try: 1, 8, 32; original: 512
+actor_batch_size: 256 # may try: 1, 8, 32; original: 512
 add_image_observation: True
 adam_beta1: 0.9
 adam_beta2: 0.999
@@ -48,7 +48,7 @@ exp_set: experiment-set  # spare parameter, useful for wandb grouping
 fixup_init: true
 fn_penalty_step: constant
 grad_norm_clipping: 4
-group: simple-plr
+group: queue-testing
 learning_rate: 0.0002
 # Savedir is used for storing the checkpoint(s),
 # including flags and any global settings/stats for the training
@@ -129,9 +129,9 @@ ttyrec_envpool_size: 4
 ttyrec_cpus: 10 
 
 syllabus: True
-curriculum_method: simpleplr
-exp_name: Simple Prioritized Level Replay Seed
+curriculum_method: plr
+exp_name: Queue Testing
 run_id: 1
-eval_episodes: 100
+eval_episodes: 250
 per_task_reward_norm: False
 num_seeds: 200

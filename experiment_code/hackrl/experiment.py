@@ -25,7 +25,7 @@ import wandb
 from hackrl.core import nest, record, vtrace
 from nle.dataset import dataset, db, populate_db
 from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout
-from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum
+from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum, DummyEvaluator
 from syllabus.curricula import (CentralizedPrioritizedLevelReplay,
                                 DomainRandomization, NoopCurriculum,
                                 PrioritizedLevelReplay, SequentialCurriculum, SimpleCentralizedPrioritizedLevelReplay)
@@ -735,13 +735,13 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
             total_loss.backward()
             return
 
-    learner_outputs, _ = model(env_outputs, initial_core_state)
+    learner_outputs, _ = model(env_outputs, initial_core_state, get_action=False, get_logits=True)
 
     # Use last baseline value (from the value function) to bootstrap.
     bootstrap_value = learner_outputs["baseline"][-1]
 
     # Move from env_outputs[t] -> action[t] to action[t] -> env_outputs[t].
-    learner_outputs = nest.map(lambda t: t[:-1], learner_outputs)
+    learner_outputs = nest.map(lambda t: t[1:], learner_outputs)
     env_outputs = nest.map(lambda t: t[1:], env_outputs)
     actor_outputs = nest.map(lambda t: t[:-1], actor_outputs)
 
@@ -761,7 +761,7 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
                 if v is None or math.isnan(v):
                     stds[k] = stats["mean_square_discounted_running_reward"].mean() ** 0.5
 
-            reward_std = tasks.cpu().apply_(lambda t: stds[int(t)]).cuda()
+            reward_std = tasks.cpu().apply_(lambda t: stds[int(t)])
             reward_scale = torch.clamp(reward_std, min=0.01)
 
         rewards /= reward_scale
@@ -818,14 +818,12 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
             scores = FLAGS.baseline_cost * (baseline_loss_itemized ** 0.5).cpu()
 
         update = {
-            "update_type": "on_demand",
-            "metrics": {
-                "scores": scores.abs(),
-                "dones": current_dones,
-                "tasks": current_tasks,
-                "actors": np.arange(actor_index, actor_index + FLAGS.batch_size),
-            },
+            "scores": scores.abs(),
+            "dones": current_dones,
+            "tasks": current_tasks,
+            "actors": np.arange(actor_index, actor_index + FLAGS.batch_size),
         }
+
         curriculum.update(update)
 
     # Not sure if this is correct for every config
@@ -904,7 +902,7 @@ def log(stats, step, is_global=False, is_eval=False, curriculum=None, allowlist=
         stats_values["global_step"] = step
         wandb.log(stats_values)
         if curriculum is not None and is_global:
-            curriculum.log_metrics(wandb, step=step+1)
+            curriculum.log_metrics(wandb, [], step=step + 1)
 
 
 def save_checkpoint(checkpoint_path, learner_state):
@@ -965,7 +963,7 @@ def evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stat_dict, nex
         with torch.no_grad():
             eval_actor_outputs, eval_env_state.core_state = model(
                 nest.map(lambda t: t.unsqueeze(0), eval_env_outputs),
-                eval_env_state.core_state,
+                eval_env_state.core_state, get_value=False
             )
         eval_actor_outputs = nest.map(lambda t: t.squeeze(0), eval_actor_outputs)
         eval_action = eval_actor_outputs["action"]
@@ -1009,12 +1007,13 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = DomainRandomization(sample_env.task_space, record_stats=False, task_names=task_names)
     elif FLAGS.curriculum_method == "plr":
         print("Using Prioritized Level Replay")
-        evaluator = MoolibEvaluator(model, device="cuda")
+        evaluator = MoolibEvaluator(model, device="cpu")
+        # evaluator = DummyEvaluator(sample_env.action_space)
         curriculum = PrioritizedLevelReplay(
             sample_env.task_space,
             sample_env.observation_space,
             num_steps=FLAGS.batch_size,
-            num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
+            num_processes=64,
             num_minibatches=1,
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
@@ -1023,7 +1022,7 @@ def setup_curriculum(FLAGS, model=None):
             lstm_size=FLAGS.baseline.hidden_dim,
             record_stats=False,
             task_names=task_names,
-            device=FLAGS.device,
+            device="cpu",
         )
     elif FLAGS.curriculum_method == "centralplr":
         print("Using Central Prioritized Level Replay")
@@ -1049,10 +1048,10 @@ def setup_curriculum(FLAGS, model=None):
         )
     elif FLAGS.curriculum_method == "noop":
         print("Using Noop Curriculum")
-        curriculum = NoopCurriculum(NetHackScore, sample_env.task_space, record_stats=True, task_names=task_names)
+        curriculum = NoopCurriculum(0, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
-    curriculum = make_multiprocessing_curriculum(curriculum)
+    curriculum = make_multiprocessing_curriculum(curriculum, max_envs=64)
     task_space = sample_env.task_space
     del sample_env
     logging.info("curriculum: %s", FLAGS.curriculum_method)
@@ -1453,7 +1452,7 @@ def main(cfg):
                         if v is None or math.isnan(v):
                             stds[k] = stats["mean_square_discounted_running_reward"].mean() ** 0.5
 
-                    reward_std = reward_tasks.cpu().apply_(lambda t: stds[int(t)]).cuda()
+                    reward_std = reward_tasks.cpu().apply_(lambda t: stds[int(t)])
 
                     reward_scale = torch.clamp(reward_std, min=0.01)
                     rewards /= reward_scale.cpu()
