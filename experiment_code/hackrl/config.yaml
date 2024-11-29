@@ -129,7 +129,7 @@ ttyrec_envpool_size: 4
 ttyrec_cpus: 10 
 
 syllabus: True
-curriculum_method: plr
+curriculum_method: simpleplr
 exp_name: Queue Testing
 run_id: 1
 eval_episodes: 250

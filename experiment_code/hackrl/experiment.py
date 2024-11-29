@@ -814,17 +814,9 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
     if FLAGS.syllabus and FLAGS.curriculum_method == "simpleplr":
         current_tasks = env_outputs["tty_cursor"]
         current_dones = env_outputs["done"]
-        with torch.no_grad():
-            scores = FLAGS.baseline_cost * (baseline_loss_itemized ** 0.5).cpu()
 
-        update = {
-            "scores": scores.abs(),
-            "dones": current_dones,
-            "tasks": current_tasks,
-            "actors": np.arange(actor_index, actor_index + FLAGS.batch_size),
-        }
-
-        curriculum.update(update)
+        curriculum.update(current_tasks, baseline_loss_itemized.abs(), current_dones, 
+                          np.arange(actor_index, actor_index + FLAGS.batch_size))
 
     # Not sure if this is correct for every config
     actor_index = (actor_index + baseline_loss_itemized.shape[1]) % (FLAGS.actor_batch_size * FLAGS.num_actor_batches)
@@ -1007,13 +999,13 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = DomainRandomization(sample_env.task_space, record_stats=True, task_names=task_names)
     elif FLAGS.curriculum_method == "plr":
         print("Using Prioritized Level Replay")
-        evaluator = MoolibEvaluator(model, device="cpu")
+        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True)
         # evaluator = DummyEvaluator(sample_env.action_space)
         curriculum = PrioritizedLevelReplay(
             sample_env.task_space,
             sample_env.observation_space,
             num_steps=FLAGS.batch_size,
-            num_processes=64,
+            num_processes=512,
             num_minibatches=1,
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
@@ -1022,7 +1014,7 @@ def setup_curriculum(FLAGS, model=None):
             lstm_size=FLAGS.baseline.hidden_dim,
             record_stats=True,
             task_names=task_names,
-            device="cpu",
+            device="cuda",
         )
     elif FLAGS.curriculum_method == "centralplr":
         print("Using Central Prioritized Level Replay")
@@ -1051,7 +1043,7 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = NoopCurriculum(0, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {curriculum_method}")
-    curriculum = make_multiprocessing_curriculum(curriculum, max_envs=64)
+    curriculum = make_multiprocessing_curriculum(curriculum)
     task_space = sample_env.task_space
     del sample_env
     logging.info("curriculum: %s", FLAGS.curriculum_method)
