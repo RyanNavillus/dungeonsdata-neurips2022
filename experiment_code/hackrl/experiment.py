@@ -741,7 +741,7 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
     bootstrap_value = learner_outputs["baseline"][-1]
 
     # Move from env_outputs[t] -> action[t] to action[t] -> env_outputs[t].
-    learner_outputs = nest.map(lambda t: t[1:], learner_outputs)
+    learner_outputs = nest.map(lambda t: t[:-1], learner_outputs)
     env_outputs = nest.map(lambda t: t[1:], env_outputs)
     actor_outputs = nest.map(lambda t: t[:-1], actor_outputs)
 
@@ -800,26 +800,26 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
         stats,
     )
 
-    baseline_loss_itemized = compute_baseline_loss(
+    baseline_loss = FLAGS.baseline_cost * compute_baseline_loss(
         actor_outputs["baseline"],
         learner_outputs["baseline"],
         vtrace_returns.vs,
         FLAGS.appo_clip_baseline,
         stats,
-        per_item=True,
+        per_item=False,
     )
-    baseline_loss = FLAGS.baseline_cost * 0.5 * torch.mean(baseline_loss_itemized)
 
     # Syllabus curriculum update
     if FLAGS.syllabus and FLAGS.curriculum_method == "simpleplr":
         current_tasks = env_outputs["tty_cursor"]
+        scores = (actor_outputs["baseline"] - learner_outputs["baseline"]).abs()
         current_dones = env_outputs["done"]
 
-        curriculum.update(current_tasks, baseline_loss_itemized.abs(), current_dones, 
+        curriculum.update(current_tasks, scores, current_dones,
                           np.arange(actor_index, actor_index + FLAGS.batch_size))
 
     # Not sure if this is correct for every config
-    actor_index = (actor_index + baseline_loss_itemized.shape[1]) % (FLAGS.actor_batch_size * FLAGS.num_actor_batches)
+    actor_index = (actor_index + FLAGS.actor_batch_size) % (FLAGS.actor_batch_size * FLAGS.num_actor_batches)
 
     total_loss += entropy_loss + pg_loss + baseline_loss
 

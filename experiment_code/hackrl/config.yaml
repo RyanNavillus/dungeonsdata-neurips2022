@@ -48,7 +48,7 @@ exp_set: experiment-set  # spare parameter, useful for wandb grouping
 fixup_init: true
 fn_penalty_step: constant
 grad_norm_clipping: 4
-group: queue-testing
+group: regression-simple-testing
 learning_rate: 0.0002
 # Savedir is used for storing the checkpoint(s),
 # including flags and any global settings/stats for the training
@@ -132,6 +132,6 @@ syllabus: True
 curriculum_method: simpleplr
 exp_name: Queue Testing
 run_id: 1
-eval_episodes: 250
+eval_episodes: 50
 per_task_reward_norm: False
 num_seeds: 200
