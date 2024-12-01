@@ -135,3 +135,9 @@ run_id: 1
 eval_episodes: 50
 per_task_reward_norm: False
 num_seeds: 200
+
+plr:
+  staleness_coef: 0.1
+  temperature: 0.1
+  alpha: 0.0
+  strategy: value_l1
