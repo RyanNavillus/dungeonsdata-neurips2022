@@ -879,7 +879,7 @@ def log(stats, step, is_global=False, is_eval=False, curriculum=None, allowlist=
     prefix = "global/" if is_global else "local/"
     prefix = "eval/" if is_eval else prefix
     for k, v in stats.items():
-        if is_global or is_eval and k in allowlist:     # Reduce logging file size
+        if (is_global or is_eval) and k in allowlist:     # Reduce logging file size
             stats_values[prefix + k] = v.result()
         v.reset()
 
@@ -1009,7 +1009,8 @@ def setup_curriculum(FLAGS, model=None):
             num_minibatches=1,
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
-            task_sampler_kwargs_dict={"strategy": "value_l1", "alpha": 0.25},
+            task_sampler_kwargs_dict={"strategy": FLAGS.plr.strategy, "alpha": FLAGS.plr.alpha,
+                                      "temperature": FLAGS.plr.temperature, "staleness_coef": FLAGS.plr.staleness_coef},
             evaluator=evaluator,
             lstm_size=FLAGS.baseline.hidden_dim,
             record_stats=True,
@@ -1202,16 +1203,16 @@ def main(cfg):
         "mean_episode_return",
         "mean_episode_step",
         "SPS",
-        "running_reward",
-        "discounted_running_reward",
-        "reward_scale",
-        "running_step",
-        "unclipped_grad_norm",
-        "policy_loss",
-        "mean_policy_lag",
-        "baseline_loss",
+        # "running_reward",
+        # "discounted_running_reward",
+        # "reward_scale",
+        # "running_step",
+        # "unclipped_grad_norm",
+        # "policy_loss",
+        # "mean_policy_lag",
+        # "baseline_loss",
         "mean_baseline_value",
-        "entropy_loss",
+        # "entropy_loss",
         "mean_entropy_value",
         "reward_normalised",
         "mean_final_dungeon_level",
