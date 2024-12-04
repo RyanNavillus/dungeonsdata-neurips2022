@@ -89,8 +89,8 @@ def create_env(flags, curriculum=None, task_wrapper=False):
                     env,
                     env.task_space,
                     curriculum.components,
-                    buffer_size=8,
-                    batch_size=64,
+                    buffer_size=1,
+                    batch_size=32,
                     remove_keys=['glyphs', 'chars', 'colors', 'specials', 'blstats', 'message',
                                  'inv_glyphs', 'inv_strs', 'inv_letters', 'inv_oclasses', 'misc'],
                 )
