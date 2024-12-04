@@ -26,9 +26,9 @@ from hackrl.core import nest, record, vtrace
 from nle.dataset import dataset, db, populate_db
 from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout
 from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum, DummyEvaluator
-from syllabus.curricula import (CentralizedPrioritizedLevelReplay,
-                                DomainRandomization, NoopCurriculum,
-                                PrioritizedLevelReplay, SequentialCurriculum, SimpleCentralizedPrioritizedLevelReplay)
+from syllabus.curricula import (CentralPrioritizedLevelReplay,
+                                DomainRandomization, Constant,
+                                PrioritizedLevelReplay, SequentialCurriculum, DirectPrioritizedLevelReplay)
 from syllabus.examples.task_wrappers import NetHackCollect, NetHackDescend
 
 import moolib
@@ -812,9 +812,8 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
     # Syllabus curriculum update
     if FLAGS.syllabus and FLAGS.curriculum_method == "simpleplr":
         current_tasks = env_outputs["tty_cursor"]
-        scores = (actor_outputs["baseline"] - learner_outputs["baseline"]).abs()
+        scores = (vtrace_returns.vs - learner_outputs["baseline"]).abs()
         current_dones = env_outputs["done"]
-
         curriculum.update(current_tasks, scores, current_dones,
                           np.arange(actor_index, actor_index + FLAGS.batch_size))
 
@@ -984,7 +983,6 @@ def evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stat_dict, nex
 def setup_curriculum(FLAGS, model=None):
     sample_env = hackrl.environment.create_env(FLAGS, task_wrapper=True)
 
-    # def task_names(task, idx): return task.__name__
     def task_names(task, idx): return task
 
     if FLAGS.curriculum_method == "sq":
@@ -1005,7 +1003,7 @@ def setup_curriculum(FLAGS, model=None):
             sample_env.task_space,
             sample_env.observation_space,
             num_steps=FLAGS.batch_size,
-            num_processes=512,
+            num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
             num_minibatches=1,
             gamma=FLAGS.discounting,
             gae_lambda=0.95,
@@ -1019,7 +1017,7 @@ def setup_curriculum(FLAGS, model=None):
         )
     elif FLAGS.curriculum_method == "centralplr":
         print("Using Central Prioritized Level Replay")
-        curriculum = CentralizedPrioritizedLevelReplay(
+        curriculum = CentralPrioritizedLevelReplay(
             sample_env.task_space,
             num_steps=FLAGS.batch_size,
             num_processes=FLAGS.actor_batch_size,
@@ -1031,19 +1029,18 @@ def setup_curriculum(FLAGS, model=None):
         )
     elif FLAGS.curriculum_method == "simpleplr":
         print("Using Simple Prioritized Level Replay")
-        curriculum = SimpleCentralizedPrioritizedLevelReplay(
+        curriculum = DirectPrioritizedLevelReplay(
             sample_env.task_space,
             num_steps=FLAGS.batch_size,
             num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
-            task_sampler_kwargs_dict={"strategy": "value_l1"},
             record_stats=True,
             task_names=task_names
         )
     elif FLAGS.curriculum_method == "noop":
         print("Using Noop Curriculum")
-        curriculum = NoopCurriculum(0, sample_env.task_space, record_stats=True, task_names=task_names)
+        curriculum = Constant(0, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
-        raise ValueError(f"Unknown curriculum method {curriculum_method}")
+        raise ValueError(f"Unknown curriculum method {FLAGS.curriculum_method}")
     curriculum = make_multiprocessing_curriculum(curriculum)
     task_space = sample_env.task_space
     del sample_env
@@ -1123,7 +1120,7 @@ def main(cfg):
 
     if FLAGS.wandb:
         wandb.init(
-            project="syllabus",
+            project="syllabus-testing",
             config=omegaconf.OmegaConf.to_container(FLAGS),
             group=FLAGS.group,
             entity=FLAGS.entity,
