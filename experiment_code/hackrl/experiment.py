@@ -1041,7 +1041,7 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = Constant(0, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {FLAGS.curriculum_method}")
-    curriculum = make_multiprocessing_curriculum(curriculum)
+    curriculum = make_multiprocessing_curriculum(curriculum, start=False)
     task_space = sample_env.task_space
     del sample_env
     logging.info("curriculum: %s", FLAGS.curriculum_method)
@@ -1113,7 +1113,7 @@ def main(cfg):
 
     eval_envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS),
-        num_processes=FLAGS.num_actor_cpus // 2,
+        num_processes=FLAGS.num_actor_cpus,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
     )
@@ -1283,6 +1283,7 @@ def main(cfg):
     is_leader = False
     is_connected = False
     actor_index = 0
+    curriculum.start()
     while not terminate:
         prev_now = now
         now = time.time()
