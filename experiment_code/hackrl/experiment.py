@@ -812,10 +812,11 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
     # Syllabus curriculum update
     if FLAGS.syllabus and FLAGS.curriculum_method == "simpleplr":
         current_tasks = env_outputs["tty_cursor"]
-        scores = (vtrace_returns.vs - learner_outputs["baseline"]).abs()
+        scores = (vtrace_returns.vs.detach() - learner_outputs["baseline"].detach()).abs()
         current_dones = env_outputs["done"]
         curriculum.update(current_tasks, scores, current_dones,
                           np.arange(actor_index, actor_index + FLAGS.batch_size))
+        del current_tasks, scores, current_dones
 
     # Not sure if this is correct for every config
     actor_index = (actor_index + FLAGS.actor_batch_size) % (FLAGS.actor_batch_size * FLAGS.num_actor_batches)
@@ -997,7 +998,7 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = DomainRandomization(sample_env.task_space, record_stats=False, task_names=task_names)
     elif FLAGS.curriculum_method == "plr":
         print("Using Prioritized Level Replay")
-        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True)
+        evaluator = MoolibEvaluator(model, device="cpu", copy_agent=True)
         # evaluator = DummyEvaluator(sample_env.action_space)
         curriculum = PrioritizedLevelReplay(
             sample_env.task_space,
@@ -1013,7 +1014,7 @@ def setup_curriculum(FLAGS, model=None):
             lstm_size=FLAGS.baseline.hidden_dim,
             record_stats=False,
             task_names=task_names,
-            device="cuda",
+            device="cpu",
         )
     elif FLAGS.curriculum_method == "centralplr":
         print("Using Central Prioritized Level Replay")
@@ -1033,7 +1034,7 @@ def setup_curriculum(FLAGS, model=None):
             sample_env.task_space,
             num_steps=FLAGS.batch_size,
             num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
-            record_stats=True,
+            record_stats=False,
             task_names=task_names
         )
     elif FLAGS.curriculum_method == "noop":
@@ -1041,7 +1042,7 @@ def setup_curriculum(FLAGS, model=None):
         curriculum = Constant(0, sample_env.task_space, record_stats=True, task_names=task_names)
     else:
         raise ValueError(f"Unknown curriculum method {FLAGS.curriculum_method}")
-    curriculum = make_multiprocessing_curriculum(curriculum)
+    curriculum = make_multiprocessing_curriculum(curriculum, timeout=300, use_simple_queues=True)
     task_space = sample_env.task_space
     del sample_env
     logging.info("curriculum: %s", FLAGS.curriculum_method)
@@ -1126,6 +1127,7 @@ def main(cfg):
             entity=FLAGS.entity,
             name=FLAGS.exp_name,
             save_code=True,
+            dir="/fs/nexus-scratch/rsulli/nethack"
         )
 
     env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
@@ -1447,14 +1449,11 @@ def main(cfg):
                     reward_scale = torch.clamp(reward_std, min=0.01)
                     rewards /= reward_scale.cpu()
                 update = {
-                    "update_type": "on_demand",
-                    "metrics": {
-                        "value": actor_outputs["baseline"].view(-1, 1),
-                        "next_value": next_value.view(-1, 1),
-                        "rew": rewards,
-                        "dones": cpu_env_outputs["done"],
-                        "tasks": tasks,
-                    },
+                    "value": actor_outputs["baseline"].view(-1, 1),
+                    "next_value": actor_outputs["baseline"].view(-1, 1),
+                    "rew": rewards,
+                    "dones": cpu_env_outputs["done"],
+                    "tasks": tasks,
                 }
                 curriculum.update(update)
 

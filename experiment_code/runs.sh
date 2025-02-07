@@ -90,8 +90,8 @@
 
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --constraint=volta32gb --cpus=20 exp_set=2G num_actor_cpus=20 exp_point=monk-APPO  total_steps=2_000_000_000 character='mon-hum-neu-mal'
 
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=16 exp_set=2G num_actor_cpus=8 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_debug" curriculum_method="dr" run_id=66 num_seeds=4000
-python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=16 exp_set=2G num_actor_cpus=8 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR_debug" curriculum_method="simpleplr" run_id=67 num_seeds=4000
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=16 exp_set=2G num_actor_cpus=8 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="DR_debug" curriculum_method="dr" run_id=66 num_seeds=4000
+# python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --cpus=16 exp_set=2G num_actor_cpus=8 exp_point=@-APPO     total_steps=2_000_000_000 exp_name="PLR_debug" curriculum_method="simpleplr" run_id=67 num_seeds=4000
 # Behavioural Cloning Experiments
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --constraint=volta32gb --cpus=20 exp_set=2G  exp_point=@-AA-BC     num_actor_cpus=20 total_steps=2_000_000_000 actor_batch_size=256 batch_size=128 ttyrec_batch_size=512 supervised_loss=1 adam_learning_rate=0.001 behavioural_clone=True 
 #python scripts/sbatch_experiment.py --broker $BROKER_IP:$BROKER_PORT --time=4320 --constraint=volta32gb --cpus=20 exp_set=2G  exp_point=monk-AA-BC   num_actor_cpus=20 total_steps=2_000_000_000 actor_batch_size=256 batch_size=128 ttyrec_batch_size=512 supervised_loss=1 adam_learning_rate=0.001 behavioural_clone=True character='mon-hum-neu-mal'
