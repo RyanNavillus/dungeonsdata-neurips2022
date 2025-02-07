@@ -1114,7 +1114,7 @@ def main(cfg):
 
     eval_envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS),
-        num_processes=FLAGS.num_actor_cpus // 2,
+        num_processes=FLAGS.num_actor_cpus,
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
     )
@@ -1286,6 +1286,7 @@ def main(cfg):
     is_leader = False
     is_connected = False
     actor_index = 0
+    curriculum.start()
     while not terminate:
         prev_now = now
         now = time.time()

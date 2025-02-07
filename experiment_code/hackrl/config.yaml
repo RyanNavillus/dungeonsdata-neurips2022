@@ -21,7 +21,7 @@ hydra:
     dir: "${localdir}"
 
 activation_function: relu
-actor_batch_size: 256 # may try: 1, 8, 32; original: 512
+actor_batch_size: 512 # may try: 1, 8, 32; original: 512
 add_image_observation: True
 adam_beta1: 0.9
 adam_beta2: 0.999
