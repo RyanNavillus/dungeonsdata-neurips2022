@@ -325,7 +325,7 @@ class ChaoticDwarvenGPT5(nn.Module):
 
         core_input = st.view(T, B, -1)
         core_output_list = []
-        notdone = (~inputs["done"]).float()
+        notdone = (~inputs["done"].int()).float()
 
         for input, nd in zip(core_input.unbind(), notdone.unbind()):
             # Reset core state to zero whenever an episode ended.

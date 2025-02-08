@@ -94,7 +94,7 @@ def _tile_characters_to_image(
             h_pixel = h * char_height
             w_pixel = w * char_width
             out_image[
-                :, h_pixel : h_pixel + char_height, w_pixel : w_pixel + char_width
+                :, h_pixel: h_pixel + char_height, w_pixel: w_pixel + char_width
             ] = char_array[char, color]
 
 
@@ -105,7 +105,7 @@ def _initialize_char_array(font_size, rescale_font_size):
 
     Returns a np array of (num_chars, num_colors, char_height, char_width, 3)
     """
-    #ont = ImageFont.truetype(SMALL_FONT_PATH, font_size)
+    # ont = ImageFont.truetype(SMALL_FONT_PATH, font_size)
     font = ImageFont.load_default()
     dummy_text = "".join(
         [(chr(i) if chr(i).isprintable() else " ") for i in range(256)]
@@ -263,7 +263,7 @@ class RenderCharImagesWithNumpyWrapperV2(gym.Wrapper):
             [
                 (k, self.env.observation_space[k])
                 for k in self.env.observation_space
-                if k not in ["tty_chars", "tty_colors"]
+                # if k not in ["tty_chars", "tty_colors"]
             ]
         )
         self.observation_space = gym.spaces.Dict(obs_spaces)

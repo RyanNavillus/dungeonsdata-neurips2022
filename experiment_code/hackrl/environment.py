@@ -14,7 +14,7 @@
 import gymnasium as gym
 from nle import nethack
 from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
-from syllabus.core import GymnasiumSyncWrapper
+from syllabus.core import GymnasiumSyncWrapper, GymnasiumEvaluationWrapper
 from syllabus.examples.task_wrappers import NethackTaskWrapper, NethackSeedWrapper
 
 from . import tasks, wrappers
@@ -35,7 +35,7 @@ class GymConvWrapper(gym.Wrapper):
         return obs
 
 
-def create_env(flags, curriculum=None, task_wrapper=False):
+def create_env(flags, curriculum=None, task_wrapper=False, eval=False):
     env_class = tasks.ENVS[flags.env.name]
     observation_keys = (
         "message",
@@ -79,8 +79,13 @@ def create_env(flags, curriculum=None, task_wrapper=False):
             crop_size=flags.crop_dim,
             rescale_font_size=(flags.pixel_size, flags.pixel_size),
         )
+    if eval:
+        env = GymV21CompatibilityV0(env=env)
+        env = NethackSeedWrapper(env, num_seeds=flags.num_seeds)
+        env = GymnasiumEvaluationWrapper(env, task_space=env.task_space, randomize_order=False, start_index_spacing=1)
+        # env = GymnasiumEvaluationWrapper(env, task_space=env.task_space, randomize_order=True, ignore_seed=True)
 
-    if flags.syllabus:
+    elif flags.syllabus:
         if curriculum is not None or task_wrapper:
             env = GymV21CompatibilityV0(env=env)
             env = NethackSeedWrapper(env, num_seeds=flags.num_seeds)

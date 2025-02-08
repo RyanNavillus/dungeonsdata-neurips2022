@@ -11,6 +11,7 @@ import socket
 import time
 from typing import Optional
 
+import gymnasium as gym
 import coolname
 import hackrl.environment
 import hackrl.models
@@ -28,7 +29,7 @@ from nle.env.tasks import NetHackEat, NetHackGold, NetHackScore, NetHackScout
 from syllabus.core import MoolibEvaluator, make_multiprocessing_curriculum, DummyEvaluator
 from syllabus.curricula import (CentralPrioritizedLevelReplay,
                                 DomainRandomization, Constant,
-                                PrioritizedLevelReplay, SequentialCurriculum, DirectPrioritizedLevelReplay)
+                                PrioritizedLevelReplay, SequentialCurriculum, DirectPrioritizedLevelReplay, LearningProgress, Learnability)
 from syllabus.examples.task_wrappers import NetHackCollect, NetHackDescend
 
 import moolib
@@ -986,6 +987,11 @@ def setup_curriculum(FLAGS, model=None):
 
     def task_names(task, idx): return task
 
+    def create_env(FLAGS):
+        def thunk():
+            return hackrl.environment.create_env(FLAGS, eval=True)
+        return thunk
+
     if FLAGS.curriculum_method == "sq":
         print("Using Sequential Curriculum")
         curriculum = SequentialCurriculum([
@@ -1037,12 +1043,29 @@ def setup_curriculum(FLAGS, model=None):
             record_stats=False,
             task_names=task_names
         )
+    elif FLAGS.curriculum_method == "learning_progress":
+        syllabus_eval_envs = gym.vector.AsyncVectorEnv(
+            [create_env(FLAGS) for _ in range(FLAGS.batch_size)]
+        )
+        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True)
+        curriculum = LearningProgress(
+            sample_env.task_space,
+            eval_envs=syllabus_eval_envs,
+            evaluator=evaluator,
+            eval_interval_steps=1000 * FLAGS.unroll_length * FLAGS.batch_size,
+            recurrent_size=model.hidden_dim,
+            recurrent_method="lstm",
+            task_names=task_names,
+            eval_eps=FLAGS.num_seeds * 5,
+            continuous_progress=True,
+            normalize_success=False,
+        )
     elif FLAGS.curriculum_method == "noop":
         print("Using Noop Curriculum")
-        curriculum = Constant(0, sample_env.task_space, record_stats=True, task_names=task_names)
+        curriculum = Constant(0, sample_env.task_space, record_stats=True, task_names=task_names, timeout=300)
     else:
         raise ValueError(f"Unknown curriculum method {FLAGS.curriculum_method}")
-    curriculum = make_multiprocessing_curriculum(curriculum, timeout=300, use_simple_queues=True)
+    curriculum = make_multiprocessing_curriculum(curriculum, timeout=6000, use_simple_queues=True, start=False)
     task_space = sample_env.task_space
     del sample_env
     logging.info("curriculum: %s", FLAGS.curriculum_method)
@@ -1104,6 +1127,8 @@ def main(cfg):
     curriculum = task_space = None
     if FLAGS.syllabus:
         curriculum, task_space = setup_curriculum(FLAGS, model=model)
+
+    sample_env = hackrl.environment.create_env(FLAGS, curriculum=curriculum)
 
     envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
@@ -1276,6 +1301,7 @@ def main(cfg):
 
     # Run.
     now = time.time()
+    eval_iter = 0
     prev_env_train_steps = 0
     prev_global_env_train_steps = 0
     next_env_index = 0
@@ -1286,7 +1312,10 @@ def main(cfg):
     is_leader = False
     is_connected = False
     actor_index = 0
-    curriculum.start()
+    cpu_env_outputs = None
+    if curriculum is not None:
+        curriculum.start()
+
     while not terminate:
         prev_now = now
         now = time.time()
@@ -1348,13 +1377,14 @@ def main(cfg):
 
             steps = learner_state.global_stats["env_train_steps"].result()
 
-            log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
-            if now - last_eval >= FLAGS.log_interval * 10:
-                last_eval = now
-                # Evaluate agent on test seeds
+            # Evaluate agent on test seeds
+            if eval_iter >= FLAGS.eval_interval:
                 eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
-                                                                    next_eval_env_index=next_eval_env_index)
+                                                                      next_eval_env_index=next_eval_env_index)
                 log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
+                eval_iter = (eval_iter + 1) % FLAGS.eval_interval
+
+            log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
             log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
 
         if is_leader:
@@ -1412,6 +1442,7 @@ def main(cfg):
             env_state = env_states[cur_index]
             if env_state.future is None:
                 env_state.future = envs.step(cur_index, env_state.prev_action)
+            time.sleep(0.001)
             cpu_env_outputs = env_state.future.result()
             # logging.info("generated data")
 
