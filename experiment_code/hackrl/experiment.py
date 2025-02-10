@@ -1047,7 +1047,7 @@ def setup_curriculum(FLAGS, model=None):
         syllabus_eval_envs = gym.vector.AsyncVectorEnv(
             [create_env(FLAGS) for _ in range(FLAGS.batch_size)]
         )
-        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True)
+        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=False)
         curriculum = LearningProgress(
             sample_env.task_space,
             eval_envs=syllabus_eval_envs,
@@ -1060,9 +1060,28 @@ def setup_curriculum(FLAGS, model=None):
             continuous_progress=True,
             normalize_success=False,
         )
+    elif FLAGS.curriculum_method == "learnability":
+        syllabus_eval_envs = gym.vector.AsyncVectorEnv(
+            [create_env(FLAGS) for _ in range(FLAGS.batch_size)]
+        )
+        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True)
+        curriculum = Learnability(
+            sample_env.task_space,
+            eval_envs=syllabus_eval_envs,
+            evaluator=evaluator,
+            eval_interval_steps=1000 * FLAGS.unroll_length * FLAGS.batch_size,
+            recurrent_size=model.hidden_dim,
+            recurrent_method="rnn",
+            task_names=task_names,
+            eval_eps=FLAGS.num_seeds * 5,
+            continuous_progress=True,
+            normalize_success=False,
+            sampling="dist",
+        )
     elif FLAGS.curriculum_method == "noop":
         print("Using Noop Curriculum")
-        curriculum = Constant(0, sample_env.task_space, record_stats=True, task_names=task_names, timeout=300)
+        curriculum = Constant(0, sample_env.task_space, record_stats=True,
+                              task_names=task_names, timeout=300, start=False)
     else:
         raise ValueError(f"Unknown curriculum method {FLAGS.curriculum_method}")
     curriculum = make_multiprocessing_curriculum(curriculum, timeout=6000, use_simple_queues=True, start=False)
@@ -1101,6 +1120,17 @@ def main(cfg):
 
     logging.info("train_id: %s", train_id)
 
+    if FLAGS.wandb:
+        wandb.init(
+            project="syllabus-testing",
+            config=omegaconf.OmegaConf.to_container(FLAGS),
+            group=FLAGS.group,
+            entity=FLAGS.entity,
+            name=FLAGS.exp_name,
+            save_code=True,
+            dir="/fs/nexus-scratch/rsulli/nethack"
+        )
+
     if FLAGS.use_kickstarting:
         student = hackrl.models.create_model(FLAGS, FLAGS.device)
         load_data = torch.load(FLAGS.kickstarting_path)
@@ -1128,7 +1158,7 @@ def main(cfg):
     if FLAGS.syllabus:
         curriculum, task_space = setup_curriculum(FLAGS, model=model)
 
-    sample_env = hackrl.environment.create_env(FLAGS, curriculum=curriculum)
+    # sample_env = hackrl.environment.create_env(FLAGS, curriculum=curriculum)
 
     envs = moolib.EnvPool(
         lambda: hackrl.environment.create_env(FLAGS, curriculum=curriculum),
@@ -1143,17 +1173,6 @@ def main(cfg):
         batch_size=FLAGS.actor_batch_size,
         num_batches=FLAGS.num_actor_batches,
     )
-
-    if FLAGS.wandb:
-        wandb.init(
-            project="syllabus-testing",
-            config=omegaconf.OmegaConf.to_container(FLAGS),
-            group=FLAGS.group,
-            entity=FLAGS.entity,
-            name=FLAGS.exp_name,
-            save_code=True,
-            dir="/fs/nexus-scratch/rsulli/nethack"
-        )
 
     env_states = [EnvBatchState(FLAGS, model) for _ in range(FLAGS.num_actor_batches)]
     eval_env_states = [EnvBatchState(FLAGS, model, actor_batch_size=FLAGS.actor_batch_size)

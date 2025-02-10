@@ -130,7 +130,7 @@ ttyrec_cpus: 10
 
 syllabus: True
 curriculum_method: learning_progress
-exp_name: LP Testing
+exp_name: Testings
 run_id: 1
 eval_episodes: 50
 per_task_reward_norm: False
@@ -142,3 +142,6 @@ plr:
   temperature: 0.1
   alpha: 0.0
   strategy: value_l1
+
+learning_progress:
+  ema_alpha: 0.1
