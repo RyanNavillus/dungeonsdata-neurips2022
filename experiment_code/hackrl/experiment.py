@@ -812,7 +812,7 @@ def compute_gradients(data, learner_state, stats, curriculum, actor_index=None):
 
     # Syllabus curriculum update
     if FLAGS.syllabus and FLAGS.curriculum_method == "simpleplr":
-        current_tasks = env_outputs["tty_cursor"]
+        current_tasks = env_outputs["tty_cursor"][:, :, 0]
         scores = (vtrace_returns.vs.detach() - learner_outputs["baseline"].detach()).abs()
         current_dones = env_outputs["done"]
         curriculum.update(current_tasks, scores, current_dones,
