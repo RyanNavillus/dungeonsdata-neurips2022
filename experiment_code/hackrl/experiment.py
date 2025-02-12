@@ -1041,7 +1041,13 @@ def setup_curriculum(FLAGS, model=None):
             num_steps=FLAGS.batch_size,
             num_processes=FLAGS.actor_batch_size * FLAGS.num_actor_batches,
             record_stats=False,
-            task_names=task_names
+            task_names=task_names,
+            task_sampler_kwargs_dict={
+                "strategy": "value_l1",
+                "temperature": FLAGS.plr.temperature,
+                "staleness_coef": FLAGS.plr.staleness_coef,
+                "alpha": FLAGS.plr.alpha
+            },
         )
     elif FLAGS.curriculum_method == "learning_progress":
         evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True, simple_copy=True)
@@ -1058,24 +1064,27 @@ def setup_curriculum(FLAGS, model=None):
             eval_eps=FLAGS.num_seeds * 5,
             continuous_progress=True,
             normalize_success=False,
+            ema_alpha=FLAGS.learning_progress.ema_alpha,
+            p_theta=FLAGS.learning_progress.p_theta,
         )
     elif FLAGS.curriculum_method == "learnability":
-        syllabus_eval_envs = gym.vector.AsyncVectorEnv(
-            [create_env(FLAGS) for _ in range(FLAGS.batch_size)]
-        )
-        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True)
+        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True, simple_copy=True)
         curriculum = Learnability(
             sample_env.task_space,
-            eval_envs=syllabus_eval_envs,
+            eval_envs=None,
+            create_env=create_env(FLAGS),
+            num_eval_envs=FLAGS.actor_batch_size,
             evaluator=evaluator,
             eval_interval_steps=1000 * FLAGS.unroll_length * FLAGS.batch_size,
             recurrent_size=model.hidden_dim,
-            recurrent_method="rnn",
+            recurrent_method="lstm",
             task_names=task_names,
             eval_eps=FLAGS.num_seeds * 5,
             continuous_progress=True,
             normalize_success=False,
-            sampling="dist",
+            sampling=FLAGS.learnability.sampling,
+            topk=FLAGS.learnability.topk,
+            learnable_prob=FLAGS.learnability.learnable_prob,
         )
     elif FLAGS.curriculum_method == "noop":
         print("Using Noop Curriculum")
