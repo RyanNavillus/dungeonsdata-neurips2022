@@ -129,10 +129,10 @@ ttyrec_envpool_size: 4
 ttyrec_cpus: 10 
 
 syllabus: True
-curriculum_method: learning_progress
+curriculum_method: dr
 exp_name: Testings
 run_id: 1
-eval_episodes: 50
+eval_episodes: 1000
 per_task_reward_norm: False
 num_seeds: 200
 eval_interval: 10

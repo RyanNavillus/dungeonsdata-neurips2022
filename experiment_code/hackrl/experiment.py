@@ -1409,7 +1409,7 @@ def main(cfg):
                 eval_env_states, next_eval_env_index = evaluate_agent(FLAGS, model, eval_envs, eval_env_states, eval_stats,
                                                                       next_eval_env_index=next_eval_env_index)
                 log(eval_stats, step=steps, is_global=False, is_eval=True, allowlist=stats_allowlist)
-                eval_iter = (eval_iter + 1) % FLAGS.eval_interval
+            eval_iter = (eval_iter + 1) % (FLAGS.eval_interval + 1)
 
             log(stats, step=steps, is_global=False, allowlist=stats_allowlist)
             log(learner_state.global_stats, step=steps, is_global=True, curriculum=curriculum, allowlist=stats_allowlist)
