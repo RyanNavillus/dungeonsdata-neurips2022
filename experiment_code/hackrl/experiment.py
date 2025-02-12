@@ -1044,13 +1044,12 @@ def setup_curriculum(FLAGS, model=None):
             task_names=task_names
         )
     elif FLAGS.curriculum_method == "learning_progress":
-        syllabus_eval_envs = gym.vector.AsyncVectorEnv(
-            [create_env(FLAGS) for _ in range(FLAGS.batch_size)]
-        )
-        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=False)
+        evaluator = MoolibEvaluator(model, device="cuda", copy_agent=True, simple_copy=True)
         curriculum = LearningProgress(
             sample_env.task_space,
-            eval_envs=syllabus_eval_envs,
+            eval_envs=None,
+            create_env=create_env(FLAGS),
+            num_eval_envs=FLAGS.actor_batch_size,
             evaluator=evaluator,
             eval_interval_steps=1000 * FLAGS.unroll_length * FLAGS.batch_size,
             recurrent_size=model.hidden_dim,
@@ -1119,17 +1118,6 @@ def main(cfg):
     )
 
     logging.info("train_id: %s", train_id)
-
-    if FLAGS.wandb:
-        wandb.init(
-            project="syllabus-testing",
-            config=omegaconf.OmegaConf.to_container(FLAGS),
-            group=FLAGS.group,
-            entity=FLAGS.entity,
-            name=FLAGS.exp_name,
-            save_code=True,
-            dir="/fs/nexus-scratch/rsulli/nethack"
-        )
 
     if FLAGS.use_kickstarting:
         student = hackrl.models.create_model(FLAGS, FLAGS.device)
@@ -1318,6 +1306,17 @@ def main(cfg):
             TTYREC_HIDDEN_STATE.append(hs)
         TTYREC_ENVPOOL = make_ttyrec_envpool(tp, FLAGS)
 
+    if FLAGS.wandb:
+        wandb.init(
+            project="syllabus-testing",
+            config=omegaconf.OmegaConf.to_container(FLAGS),
+            group=FLAGS.group,
+            entity=FLAGS.entity,
+            name=FLAGS.exp_name,
+            save_code=True,
+            dir="/fs/nexus-scratch/rsulli/nethack"
+        )
+
     # Run.
     now = time.time()
     eval_iter = 0
@@ -1461,7 +1460,6 @@ def main(cfg):
             env_state = env_states[cur_index]
             if env_state.future is None:
                 env_state.future = envs.step(cur_index, env_state.prev_action)
-            time.sleep(0.001)
             cpu_env_outputs = env_state.future.result()
             # logging.info("generated data")
 
@@ -1531,7 +1529,8 @@ def main(cfg):
                 env_state.time_batcher.stack(last_data)
     if is_connected and is_leader:
         save_checkpoint(checkpoint_path, learner_state)
-    tp.shutdown()
+    if FLAGS.supervised_loss or FLAGS.behavioural_clone:
+        tp.shutdown()
     logging.info("Graceful exit. Bye bye!")
 
 
