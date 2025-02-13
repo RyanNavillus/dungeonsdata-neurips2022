@@ -1267,11 +1267,13 @@ def main(cfg):
 
     checkpoint_path = os.path.join(FLAGS.savedir, "checkpoint.tar")
 
+    resume = "never"
     if os.path.exists(checkpoint_path):
         logging.info("Loading checkpoint: %s" % checkpoint_path)
         load_checkpoint(checkpoint_path, learner_state)
         accumulator.set_model_version(learner_state.model_version)
         logging.info("loaded stats %s", learner_state.global_stats)
+        resume = "must"
 
     global_stats_accumulator = GlobalStatsAccumulator(
         rpc_group, learner_state.global_stats
@@ -1323,7 +1325,9 @@ def main(cfg):
             entity=FLAGS.entity,
             name=FLAGS.exp_name,
             save_code=True,
-            dir="/fs/nexus-scratch/rsulli/nethack"
+            dir="/fs/nexus-scratch/rsulli/nethack",
+            id="resume" + str(FLAGS.run_id),
+            resume=resume,
         )
 
     # Run.
